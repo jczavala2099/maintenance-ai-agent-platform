@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# Azure Functions
+local.settings.json
+
+# Logs
+*.log
+*.jsonl
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
