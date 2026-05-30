@@ -1,0 +1,58 @@
+name: Maintenance Agent CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install orchestrator dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r orchestrator/requirements.txt
+
+      - name: Install tools-api dependencies
+        run: |
+          pip install -r tools-api/requirements.txt
+
+      - name: Install logging-service dependencies
+        run: |
+          pip install -r logging-service/requirements.txt
+
+      - name: Validate Python syntax
+        run: |
+          python -m py_compile orchestrator/main.py
+          python -m py_compile tools-api/main.py
+          python -m py_compile logging-service/main.py
+
+      - name: Build orchestrator Docker image
+        run: |
+          docker build -t maintenance-agent-orchestrator ./orchestrator
+
+      - name: Build tools-api Docker image
+        run: |
+          docker build -t maintenance-tools-api ./tools-api
+
+      - name: Build logging-service Docker image
+        run: |
+          docker build -t maintenance-logging-service ./logging-service
+
+      - name: CI completed
+        run: |
+          echo "Maintenance Agent CI/CD pipeline completed successfully."

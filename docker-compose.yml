@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  orchestrator:
+    build: ./orchestrator
+    container_name: maintenance-agent-orchestrator
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - TOOLS_API_URL=http://tools-api:8001
+      - LOGGING_API_URL=http://logging-service:8002
+    depends_on:
+      - tools-api
+      - logging-service
+
+  tools-api:
+    build: ./tools-api
+    container_name: maintenance-tools-api
+    ports:
+      - "8001:8001"
+
+  logging-service:
+    build: ./logging-service
+    container_name: maintenance-logging-service
+    ports:
+      - "8002:8002"
