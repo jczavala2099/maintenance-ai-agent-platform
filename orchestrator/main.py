@@ -2,6 +2,7 @@
 from pydantic import BaseModel
 import requests
 import os
+import re
 
 app = FastAPI(title="Maintenance Agent Orchestrator")
 
@@ -30,6 +31,16 @@ def send_log(request_id: str, event_type: str, detail: dict):
         print(f"Logging failed: {e}")
 
 
+def detect_equipment_id(message: str):
+    pattern = r"\b(CNC-\d{2}|PRESS-\d{2}|CONV-\d{2}|ROBOT-\d{2}|COMP-\d{2}|PUMP-\d{2}|FAN-\d{2}|OVEN-\d{2}|PACK-\d{2})\b"
+    match = re.search(pattern, message.upper())
+
+    if match:
+        return match.group(1)
+
+    return None
+
+
 @app.get("/")
 def health_check():
     return {
@@ -55,7 +66,8 @@ User message:
             "model": "llama3",
             "prompt": prompt,
             "stream": False
-        }
+        },
+        timeout=180
     )
 
     llm_response = response.json().get("response", "")
@@ -70,58 +82,42 @@ User message:
 @app.post("/maintenance-case")
 def maintenance_case(request: UserRequest):
     request_id = "REQ-2026-0001"
-    equipment_id = "CNC-01"
+    equipment_id = detect_equipment_id(request.message)
+
+    if not equipment_id:
+        return {
+            "status": "error",
+            "request_id": request_id,
+            "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
+        }
 
     send_log(
         request_id,
         "request_received",
         {
             "user_id": request.user_id,
-            "message": request.message
+            "message": request.message,
+            "equipment_id": equipment_id
         }
     )
 
     equipment = requests.post(
         f"{TOOLS_API_URL}/get_equipment_info",
-        json={"equipment_id": equipment_id}
+        json={"equipment_id": equipment_id},
+        timeout=5
     ).json()
-
-    send_log(
-        request_id,
-        "tool_executed",
-        {
-            "tool_name": "get_equipment_info",
-            "result": equipment
-        }
-    )
 
     history = requests.post(
         f"{TOOLS_API_URL}/get_maintenance_history",
-        json={"equipment_id": equipment_id}
+        json={"equipment_id": equipment_id},
+        timeout=5
     ).json()
-
-    send_log(
-        request_id,
-        "tool_executed",
-        {
-            "tool_name": "get_maintenance_history",
-            "result": history
-        }
-    )
 
     spare_parts = requests.post(
         f"{TOOLS_API_URL}/check_spare_parts",
-        json={"equipment_id": equipment_id}
+        json={"equipment_id": equipment_id},
+        timeout=5
     ).json()
-
-    send_log(
-        request_id,
-        "tool_executed",
-        {
-            "tool_name": "check_spare_parts",
-            "result": spare_parts
-        }
-    )
 
     work_order = requests.post(
         f"{TOOLS_API_URL}/create_work_order",
@@ -132,30 +128,14 @@ def maintenance_case(request: UserRequest):
             "description": request.message,
             "recommended_action": "Inspect bearings, shaft alignment and mounting base",
             "requested_by": request.user_id
-        }
+        },
+        timeout=5
     ).json()
-
-    send_log(
-        request_id,
-        "tool_executed",
-        {
-            "tool_name": "create_work_order",
-            "result": work_order
-        }
-    )
 
     notification = requests.post(
-        f"{TOOLS_API_URL}/send_notification"
+        f"{TOOLS_API_URL}/send_notification",
+        timeout=5
     ).json()
-
-    send_log(
-        request_id,
-        "tool_executed",
-        {
-            "tool_name": "send_notification",
-            "result": notification
-        }
-    )
 
     final_response = (
         "A high priority maintenance work order was created "
@@ -166,6 +146,7 @@ def maintenance_case(request: UserRequest):
         request_id,
         "final_response_generated",
         {
+            "equipment_id": equipment_id,
             "final_response": final_response,
             "work_order_id": work_order.get("work_order_id")
         }
@@ -175,6 +156,7 @@ def maintenance_case(request: UserRequest):
         "agent_flow": "User -> Orchestrator -> Tool(s) -> Logging -> Response",
         "request_id": request_id,
         "user_id": request.user_id,
+        "detected_equipment_id": equipment_id,
         "original_message": request.message,
         "equipment": equipment,
         "history": history,
@@ -184,10 +166,18 @@ def maintenance_case(request: UserRequest):
         "final_response": final_response
     }
 
+
 @app.post("/critical-maintenance-workflow")
 def critical_maintenance_workflow(request: UserRequest):
     request_id = "WF-2026-0001"
-    equipment_id = "CNC-01"
+    equipment_id = detect_equipment_id(request.message)
+
+    if not equipment_id:
+        return {
+            "status": "error",
+            "workflow_id": request_id,
+            "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
+        }
 
     workflow_steps = []
 
@@ -211,11 +201,11 @@ def critical_maintenance_workflow(request: UserRequest):
         {
             "user_id": request.user_id,
             "message": request.message,
+            "equipment_id": equipment_id,
             "workflow_name": "critical_maintenance_workflow"
         }
     )
 
-    # Step 1: Validate input
     if not request.message:
         add_step(
             "validate_input",
@@ -238,11 +228,11 @@ def critical_maintenance_workflow(request: UserRequest):
         "validate_input",
         "success",
         {
-            "message": "Input validated successfully."
+            "message": "Input validated successfully.",
+            "equipment_id": equipment_id
         }
     )
 
-    # Step 2: Get equipment information
     try:
         equipment = requests.post(
             f"{TOOLS_API_URL}/get_equipment_info",
@@ -251,11 +241,7 @@ def critical_maintenance_workflow(request: UserRequest):
         ).json()
 
         if equipment.get("status") == "error":
-            add_step(
-                "get_equipment_info",
-                "failed",
-                equipment
-            )
+            add_step("get_equipment_info", "failed", equipment)
 
             return {
                 "status": "error",
@@ -265,11 +251,7 @@ def critical_maintenance_workflow(request: UserRequest):
                 "steps": workflow_steps
             }
 
-        add_step(
-            "get_equipment_info",
-            "success",
-            equipment
-        )
+        add_step("get_equipment_info", "success", equipment)
 
     except Exception as e:
         add_step(
@@ -289,7 +271,6 @@ def critical_maintenance_workflow(request: UserRequest):
             "steps": workflow_steps
         }
 
-    # Step 3: Get maintenance history
     try:
         history = requests.post(
             f"{TOOLS_API_URL}/get_maintenance_history",
@@ -297,11 +278,7 @@ def critical_maintenance_workflow(request: UserRequest):
             timeout=5
         ).json()
 
-        add_step(
-            "get_maintenance_history",
-            "success",
-            history
-        )
+        add_step("get_maintenance_history", "success", history)
 
     except Exception as e:
         history = {
@@ -310,13 +287,8 @@ def critical_maintenance_workflow(request: UserRequest):
             "error": str(e)
         }
 
-        add_step(
-            "get_maintenance_history",
-            "warning",
-            history
-        )
+        add_step("get_maintenance_history", "warning", history)
 
-    # Step 4: Check spare parts
     try:
         spare_parts = requests.post(
             f"{TOOLS_API_URL}/check_spare_parts",
@@ -324,11 +296,7 @@ def critical_maintenance_workflow(request: UserRequest):
             timeout=5
         ).json()
 
-        add_step(
-            "check_spare_parts",
-            "success",
-            spare_parts
-        )
+        add_step("check_spare_parts", "success", spare_parts)
 
     except Exception as e:
         spare_parts = {
@@ -338,13 +306,8 @@ def critical_maintenance_workflow(request: UserRequest):
             "error": str(e)
         }
 
-        add_step(
-            "check_spare_parts",
-            "warning",
-            spare_parts
-        )
+        add_step("check_spare_parts", "warning", spare_parts)
 
-    # Step 5: Decision
     if spare_parts.get("available") is True:
         decision = {
             "decision": "create_work_order",
@@ -356,13 +319,8 @@ def critical_maintenance_workflow(request: UserRequest):
             "reason": "Spare parts are not available or could not be confirmed."
         }
 
-    add_step(
-        "decision",
-        "success",
-        decision
-    )
+    add_step("decision", "success", decision)
 
-    # Step 6: Create work order or escalate
     if decision["decision"] == "create_work_order":
         try:
             work_order = requests.post(
@@ -378,11 +336,7 @@ def critical_maintenance_workflow(request: UserRequest):
                 timeout=5
             ).json()
 
-            add_step(
-                "create_work_order",
-                "success",
-                work_order
-            )
+            add_step("create_work_order", "success", work_order)
 
         except Exception as e:
             add_step(
@@ -413,18 +367,13 @@ def critical_maintenance_workflow(request: UserRequest):
             }
         )
 
-    # Step 7: Send notification
     try:
         notification = requests.post(
             f"{TOOLS_API_URL}/send_notification",
             timeout=5
         ).json()
 
-        add_step(
-            "send_notification",
-            "success",
-            notification
-        )
+        add_step("send_notification", "success", notification)
 
     except Exception as e:
         notification = {
@@ -433,11 +382,7 @@ def critical_maintenance_workflow(request: UserRequest):
             "error": str(e)
         }
 
-        add_step(
-            "send_notification",
-            "warning",
-            notification
-        )
+        add_step("send_notification", "warning", notification)
 
     final_response = {
         "summary": "Critical maintenance workflow completed.",
@@ -458,6 +403,137 @@ def critical_maintenance_workflow(request: UserRequest):
         "status": "success",
         "workflow_id": request_id,
         "workflow_name": "critical_maintenance_workflow",
+        "detected_equipment_id": equipment_id,
         "final_response": final_response,
         "steps": workflow_steps
+    }
+
+
+@app.post("/ai-maintenance-advisor")
+def ai_maintenance_advisor(request: UserRequest):
+    request_id = "AI-2026-0001"
+    equipment_id = detect_equipment_id(request.message)
+
+    if not equipment_id:
+        return {
+            "status": "error",
+            "request_id": request_id,
+            "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
+        }
+
+    equipment = requests.post(
+        f"{TOOLS_API_URL}/get_equipment_info",
+        json={"equipment_id": equipment_id},
+        timeout=5
+    ).json()
+
+    history = requests.post(
+        f"{TOOLS_API_URL}/get_maintenance_history",
+        json={"equipment_id": equipment_id},
+        timeout=5
+    ).json()
+
+    spare_parts = requests.post(
+        f"{TOOLS_API_URL}/check_spare_parts",
+        json={"equipment_id": equipment_id},
+        timeout=5
+    ).json()
+
+    work_orders = requests.post(
+        f"{TOOLS_API_URL}/get_equipment_work_orders",
+        json={"equipment_id": equipment_id},
+        timeout=5
+    ).json()
+
+    risk_prediction = requests.post(
+        f"{TOOLS_API_URL}/predict_failure_risk",
+        json={"equipment_id": equipment_id},
+        timeout=5
+    ).json()
+
+    send_log(
+        request_id,
+        "ai_advisor_context_loaded",
+        {
+            "equipment_id": equipment_id,
+            "work_orders_count": work_orders.get("count"),
+            "risk_level": risk_prediction.get("risk_level"),
+            "risk_score": risk_prediction.get("risk_score"),
+            "health_score": risk_prediction.get("health_score")
+        }
+    )
+
+    prompt = f"""
+You are an expert industrial maintenance advisor.
+
+Analyze this real maintenance data and provide:
+1. Failure risk level
+2. Most likely root cause
+3. Recommended maintenance action
+4. Spare parts recommendation
+5. Operational priority
+6. Short explanation for a maintenance supervisor
+
+User reported issue:
+{request.message}
+
+Detected equipment:
+{equipment_id}
+
+Equipment data:
+{equipment}
+
+Maintenance history:
+{history}
+
+Spare parts:
+{spare_parts}
+
+Recent work orders:
+{work_orders}
+
+Predictive maintenance risk score:
+{risk_prediction}
+
+Respond in clear professional English.
+"""
+
+    llm_response = requests.post(
+        f"{OLLAMA_URL}/api/generate",
+        json={
+            "model": "llama3",
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "num_predict": 220,
+                "temperature": 0.2
+            }
+        },
+        timeout=180
+    ).json()
+
+    recommendation = llm_response.get("response", "")
+
+    send_log(
+        request_id,
+        "ai_advisor_recommendation_generated",
+        {
+            "equipment_id": equipment_id,
+            "recommendation": recommendation
+        }
+    )
+
+    return {
+        "status": "success",
+        "advisor_type": "AI Maintenance Advisor",
+        "equipment_id": equipment_id,
+        "user_message": request.message,
+        "data_sources": {
+            "equipment": equipment,
+            "history": history,
+            "spare_parts": spare_parts,
+            "recent_work_orders": work_orders,
+            "risk_prediction": risk_prediction
+        },
+        "ai_recommendation": recommendation
     }

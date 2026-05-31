@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   orchestrator:
     build: ./orchestrator
@@ -19,9 +17,28 @@ services:
     container_name: maintenance-tools-api
     ports:
       - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://maintenance_user:maintenance_pass@postgres-db:5432/maintenance_db
+    depends_on:
+      - postgres-db
 
   logging-service:
     build: ./logging-service
     container_name: maintenance-logging-service
     ports:
       - "8002:8002"
+
+  postgres-db:
+    image: postgres:16
+    container_name: maintenance-postgres-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=maintenance_user
+      - POSTGRES_PASSWORD=maintenance_pass
+      - POSTGRES_DB=maintenance_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
