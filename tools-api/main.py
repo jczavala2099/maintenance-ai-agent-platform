@@ -469,3 +469,151 @@ def predict_failure_risk(request: EquipmentRequest):
 
     finally:
         db.close()
+
+@app.post("/get_open_work_orders")
+def get_open_work_orders(request: EquipmentRequest):
+    db = SessionLocal()
+
+    try:
+        work_orders = (
+            db.query(WorkOrder)
+            .filter(
+                WorkOrder.equipment_id == request.equipment_id,
+                WorkOrder.status.in_(["created", "in_progress"])
+            )
+            .order_by(
+                WorkOrder.created_at.desc()
+            )
+            .all()
+        )
+
+        return {
+            "status": "success",
+            "equipment_id": request.equipment_id,
+            "count": len(work_orders),
+            "open_work_orders": [
+                {
+                    "work_order_id": wo.work_order_id,
+                    "priority": wo.priority,
+                    "status_work_order": wo.status,
+                    "description": wo.description,
+                    "recommended_action": wo.recommended_action,
+                    "created_at": wo.created_at.isoformat() if wo.created_at else None
+                }
+                for wo in work_orders
+            ]
+        }
+
+    finally:
+        db.close()
+
+@app.get("/get_highest_risk_equipment")
+def get_highest_risk_equipment():
+    db = SessionLocal()
+
+    try:
+        equipment_list = db.query(Equipment).all()
+        risk_results = []
+
+        for equipment in equipment_list:
+            work_orders = db.query(WorkOrder).filter(
+                WorkOrder.equipment_id == equipment.equipment_id
+            ).all()
+
+            total_orders = len(work_orders)
+
+            critical_orders = len([
+                wo for wo in work_orders
+                if wo.priority == "critical"
+            ])
+
+            open_orders = len([
+                wo for wo in work_orders
+                if wo.status in ["created", "in_progress"]
+            ])
+
+            criticality_weight = {
+                "low": 10,
+                "medium": 20,
+                "high": 35
+            }
+
+            risk_score = (
+                criticality_weight.get(equipment.criticality, 20)
+                + min(total_orders * 3, 30)
+                + min(critical_orders * 5, 25)
+                + min(open_orders * 3, 10)
+            )
+
+            risk_score = min(risk_score, 100)
+
+            if risk_score >= 80:
+                risk_level = "critical"
+            elif risk_score >= 60:
+                risk_level = "high"
+            elif risk_score >= 35:
+                risk_level = "medium"
+            else:
+                risk_level = "low"
+
+            risk_results.append({
+                "equipment_id": equipment.equipment_id,
+                "equipment_name": equipment.name,
+                "area": equipment.area,
+                "criticality": equipment.criticality,
+                "risk_score": risk_score,
+                "health_score": 100 - risk_score,
+                "risk_level": risk_level,
+                "total_work_orders": total_orders,
+                "critical_work_orders": critical_orders,
+                "open_work_orders": open_orders
+            })
+
+        risk_results = sorted(
+            risk_results,
+            key=lambda x: x["risk_score"],
+            reverse=True
+        )
+
+        return {
+            "status": "success",
+            "count": len(risk_results),
+            "highest_risk_equipment": risk_results[:5]
+        }
+
+    finally:
+        db.close()
+@app.get("/get_critical_work_orders")
+def get_critical_work_orders():
+    db = SessionLocal()
+
+    try:
+        work_orders = (
+            db.query(WorkOrder)
+            .filter(
+                WorkOrder.priority == "critical",
+                WorkOrder.status.in_(["created", "in_progress"])
+            )
+            .order_by(WorkOrder.created_at.desc())
+            .all()
+        )
+
+        return {
+            "status": "success",
+            "count": len(work_orders),
+            "critical_work_orders": [
+                {
+                    "work_order_id": wo.work_order_id,
+                    "equipment_id": wo.equipment_id,
+                    "priority": wo.priority,
+                    "status_work_order": wo.status,
+                    "description": wo.description,
+                    "recommended_action": wo.recommended_action,
+                    "created_at": wo.created_at.isoformat() if wo.created_at else None
+                }
+                for wo in work_orders
+            ]
+        }
+
+    finally:
+        db.close()

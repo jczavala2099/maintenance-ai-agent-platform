@@ -41,6 +41,124 @@ def detect_equipment_id(message: str):
     return None
 
 
+def is_open_work_orders_question(message: str):
+    text = message.lower()
+
+    keywords = [
+        "open work orders",
+        "open orders",
+        "pending work orders",
+        "active work orders",
+        "ordenes abiertas",
+        "órdenes abiertas",
+        "ordenes pendientes",
+        "órdenes pendientes"
+    ]
+
+    return any(keyword in text for keyword in keywords)
+
+
+def is_risk_question(message: str):
+    text = message.lower()
+
+    keywords = [
+        "risk",
+        "risk score",
+        "health score",
+        "failure risk",
+        "riesgo",
+        "score",
+        "salud"
+    ]
+
+    return any(keyword in text for keyword in keywords)
+
+
+def is_spare_parts_question(message: str):
+    text = message.lower()
+
+    keywords = [
+        "spare parts",
+        "parts available",
+        "part available",
+        "inventory",
+        "refacciones",
+        "repuestos",
+        "partes disponibles"
+    ]
+
+    return any(keyword in text for keyword in keywords)
+
+
+def is_highest_risk_question(message: str):
+    text = message.lower()
+
+    keywords = [
+        "highest risk",
+        "most risky",
+        "highest risk machine",
+        "highest risk equipment",
+        "which machine has the highest risk",
+        "what machine has the highest risk",
+        "critical machines",
+        "machines at risk",
+        "highest risk asset",
+        "what equipment should i prioritize today",
+        "what machines should i prioritize today",
+        "which equipment should i prioritize today",
+        "what should i prioritize today",
+        "maintenance priorities",
+        "daily priorities",
+        "prioritize today",
+        "riesgo mas alto",
+        "riesgo más alto",
+        "maquina con mayor riesgo",
+        "máquina con mayor riesgo",
+        "equipo con mayor riesgo",
+        "priorizar hoy",
+        "prioridades de mantenimiento",
+        "que equipo debo priorizar",
+        "qué equipo debo priorizar"
+    ]
+
+    return any(keyword in text for keyword in keywords)
+
+
+def is_maintenance_history_question(message: str):
+    text = message.lower()
+
+    keywords = [
+        "maintenance history",
+        "history",
+        "past failures",
+        "repair history",
+        "failure history",
+        "historial",
+        "historial de mantenimiento",
+        "historial de fallas"
+    ]
+
+    return any(keyword in text for keyword in keywords)
+
+
+def is_critical_work_orders_question(message: str):
+    text = message.lower()
+
+    keywords = [
+        "critical work orders",
+        "critical orders",
+        "show all critical work orders",
+        "open critical work orders",
+        "critical maintenance orders",
+        "ordenes criticas",
+        "órdenes críticas",
+        "ordenes críticas abiertas",
+        "órdenes críticas abiertas"
+    ]
+
+    return any(keyword in text for keyword in keywords)
+
+
 @app.get("/")
 def health_check():
     return {
@@ -65,7 +183,11 @@ User message:
         json={
             "model": "llama3",
             "prompt": prompt,
-            "stream": False
+            "stream": False,
+            "options": {
+                "num_predict": 220,
+                "temperature": 0.2
+            }
         },
         timeout=180
     )
@@ -206,24 +328,6 @@ def critical_maintenance_workflow(request: UserRequest):
         }
     )
 
-    if not request.message:
-        add_step(
-            "validate_input",
-            "failed",
-            {
-                "error_code": "INVALID_INPUT",
-                "message": "User message is required."
-            }
-        )
-
-        return {
-            "status": "error",
-            "workflow_id": request_id,
-            "failed_step": "validate_input",
-            "message": "User message is required.",
-            "steps": workflow_steps
-        }
-
     add_step(
         "validate_input",
         "success",
@@ -233,80 +337,29 @@ def critical_maintenance_workflow(request: UserRequest):
         }
     )
 
-    try:
-        equipment = requests.post(
-            f"{TOOLS_API_URL}/get_equipment_info",
-            json={"equipment_id": equipment_id},
-            timeout=5
-        ).json()
+    equipment = requests.post(
+        f"{TOOLS_API_URL}/get_equipment_info",
+        json={"equipment_id": equipment_id},
+        timeout=5
+    ).json()
 
-        if equipment.get("status") == "error":
-            add_step("get_equipment_info", "failed", equipment)
+    add_step("get_equipment_info", "success", equipment)
 
-            return {
-                "status": "error",
-                "workflow_id": request_id,
-                "failed_step": "get_equipment_info",
-                "message": "Equipment could not be validated.",
-                "steps": workflow_steps
-            }
+    history = requests.post(
+        f"{TOOLS_API_URL}/get_maintenance_history",
+        json={"equipment_id": equipment_id},
+        timeout=5
+    ).json()
 
-        add_step("get_equipment_info", "success", equipment)
+    add_step("get_maintenance_history", "success", history)
 
-    except Exception as e:
-        add_step(
-            "get_equipment_info",
-            "failed",
-            {
-                "error_code": "TOOL_TIMEOUT_OR_UNAVAILABLE",
-                "message": str(e)
-            }
-        )
+    spare_parts = requests.post(
+        f"{TOOLS_API_URL}/check_spare_parts",
+        json={"equipment_id": equipment_id},
+        timeout=5
+    ).json()
 
-        return {
-            "status": "error",
-            "workflow_id": request_id,
-            "failed_step": "get_equipment_info",
-            "message": "Equipment tool failed.",
-            "steps": workflow_steps
-        }
-
-    try:
-        history = requests.post(
-            f"{TOOLS_API_URL}/get_maintenance_history",
-            json={"equipment_id": equipment_id},
-            timeout=5
-        ).json()
-
-        add_step("get_maintenance_history", "success", history)
-
-    except Exception as e:
-        history = {
-            "status": "warning",
-            "message": "Maintenance history unavailable.",
-            "error": str(e)
-        }
-
-        add_step("get_maintenance_history", "warning", history)
-
-    try:
-        spare_parts = requests.post(
-            f"{TOOLS_API_URL}/check_spare_parts",
-            json={"equipment_id": equipment_id},
-            timeout=5
-        ).json()
-
-        add_step("check_spare_parts", "success", spare_parts)
-
-    except Exception as e:
-        spare_parts = {
-            "status": "warning",
-            "available": False,
-            "message": "Spare parts check unavailable.",
-            "error": str(e)
-        }
-
-        add_step("check_spare_parts", "warning", spare_parts)
+    add_step("check_spare_parts", "success", spare_parts)
 
     if spare_parts.get("available") is True:
         decision = {
@@ -322,67 +375,29 @@ def critical_maintenance_workflow(request: UserRequest):
     add_step("decision", "success", decision)
 
     if decision["decision"] == "create_work_order":
-        try:
-            work_order = requests.post(
-                f"{TOOLS_API_URL}/create_work_order",
-                json={
-                    "request_id": request_id,
-                    "equipment_id": equipment_id,
-                    "priority": "critical",
-                    "description": request.message,
-                    "recommended_action": "Inspect bearings, shaft alignment and mounting base.",
-                    "requested_by": request.user_id
-                },
-                timeout=5
-            ).json()
-
-            add_step("create_work_order", "success", work_order)
-
-        except Exception as e:
-            add_step(
-                "create_work_order",
-                "failed",
-                {
-                    "error_code": "WORK_ORDER_CREATION_FAILED",
-                    "message": str(e)
-                }
-            )
-
-            return {
-                "status": "error",
-                "workflow_id": request_id,
-                "failed_step": "create_work_order",
-                "message": "Could not create work order.",
-                "steps": workflow_steps
-            }
-
-    else:
-        work_order = None
-
-        add_step(
-            "escalate_to_supervisor",
-            "success",
-            {
-                "message": "Incident escalated because spare parts are not confirmed."
-            }
-        )
-
-    try:
-        notification = requests.post(
-            f"{TOOLS_API_URL}/send_notification",
+        work_order = requests.post(
+            f"{TOOLS_API_URL}/create_work_order",
+            json={
+                "request_id": request_id,
+                "equipment_id": equipment_id,
+                "priority": "critical",
+                "description": request.message,
+                "recommended_action": "Inspect bearings, shaft alignment and mounting base.",
+                "requested_by": request.user_id
+            },
             timeout=5
         ).json()
 
-        add_step("send_notification", "success", notification)
+        add_step("create_work_order", "success", work_order)
+    else:
+        work_order = None
 
-    except Exception as e:
-        notification = {
-            "status": "warning",
-            "message": "Notification failed but workflow completed.",
-            "error": str(e)
-        }
+    notification = requests.post(
+        f"{TOOLS_API_URL}/send_notification",
+        timeout=5
+    ).json()
 
-        add_step("send_notification", "warning", notification)
+    add_step("send_notification", "success", notification)
 
     final_response = {
         "summary": "Critical maintenance workflow completed.",
@@ -514,15 +529,6 @@ Respond in clear professional English.
 
     recommendation = llm_response.get("response", "")
 
-    send_log(
-        request_id,
-        "ai_advisor_recommendation_generated",
-        {
-            "equipment_id": equipment_id,
-            "recommendation": recommendation
-        }
-    )
-
     return {
         "status": "success",
         "advisor_type": "AI Maintenance Advisor",
@@ -536,4 +542,151 @@ Respond in clear professional English.
             "risk_prediction": risk_prediction
         },
         "ai_recommendation": recommendation
+    }
+
+
+@app.post("/chat")
+def chat(request: UserRequest):
+    request_id = "CHAT-2026-0001"
+
+    if is_highest_risk_question(request.message):
+        highest_risk = requests.get(
+            f"{TOOLS_API_URL}/get_highest_risk_equipment",
+            timeout=5
+        ).json()
+
+        equipment_list = highest_risk.get("highest_risk_equipment", [])
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": "Highest risk equipment ranking generated successfully.",
+                "highest_risk_equipment": equipment_list
+            }
+        }
+
+    if is_critical_work_orders_question(request.message):
+        critical_orders = requests.get(
+            f"{TOOLS_API_URL}/get_critical_work_orders",
+            timeout=5
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": f"{critical_orders.get('count')} open critical work orders found.",
+                "critical_work_orders": critical_orders.get("critical_work_orders", [])
+            }
+        }
+
+    equipment_id = detect_equipment_id(request.message)
+
+    if not equipment_id:
+        return {
+            "status": "error",
+            "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
+        }
+
+    if is_open_work_orders_question(request.message):
+        open_orders = requests.post(
+            f"{TOOLS_API_URL}/get_open_work_orders",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        risk = requests.post(
+            f"{TOOLS_API_URL}/predict_failure_risk",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        orders = open_orders.get("open_work_orders", [])
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": f"{equipment_id} has {len(orders)} open work orders.",
+                "equipment_id": equipment_id,
+                "risk_level": risk.get("risk_level"),
+                "risk_score": risk.get("risk_score"),
+                "health_score": risk.get("health_score"),
+                "open_work_orders": [
+                    {
+                        "work_order_id": wo.get("work_order_id"),
+                        "status": wo.get("status_work_order"),
+                        "priority": wo.get("priority"),
+                        "description": wo.get("description")
+                    }
+                    for wo in orders
+                ]
+            }
+        }
+
+    if is_risk_question(request.message):
+        risk = requests.post(
+            f"{TOOLS_API_URL}/predict_failure_risk",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": f"{equipment_id} risk level is {risk.get('risk_level')}.",
+                "equipment_id": equipment_id,
+                "risk_score": risk.get("risk_score"),
+                "health_score": risk.get("health_score"),
+                "risk_level": risk.get("risk_level"),
+                "total_work_orders": risk.get("total_work_orders"),
+                "critical_work_orders": risk.get("critical_work_orders"),
+                "open_work_orders": risk.get("open_work_orders")
+            }
+        }
+
+    if is_spare_parts_question(request.message):
+        spare_parts = requests.post(
+            f"{TOOLS_API_URL}/check_spare_parts",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": spare_parts
+        }
+
+    if is_maintenance_history_question(request.message):
+        history = requests.post(
+            f"{TOOLS_API_URL}/get_maintenance_history",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": f"Maintenance history retrieved for {equipment_id}.",
+                "equipment_id": equipment_id,
+                "maintenance_history": history
+            }
+        }
+
+    return {
+        "status": "not_supported_yet",
+        "message": "This chat endpoint currently supports open work orders, risk score, spare parts, highest risk equipment, maintenance history, and critical work orders questions.",
+        "examples": [
+            "Are there open work orders for ROBOT-01?",
+            "What is the risk score for PRESS-01?",
+            "Are spare parts available for CNC-01?",
+            "Which machine has the highest risk?",
+            "What equipment should I prioritize today?",
+            "What maintenance history does ROBOT-01 have?",
+            "Show all critical work orders."
+        ]
     }
