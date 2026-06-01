@@ -617,3 +617,174 @@ def get_critical_work_orders():
 
     finally:
         db.close()
+@app.post("/get_all_work_orders")
+def get_all_work_orders(request: EquipmentRequest):
+    db = SessionLocal()
+
+    try:
+        work_orders = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.equipment_id == request.equipment_id)
+            .order_by(WorkOrder.created_at.desc())
+            .all()
+        )
+
+        return {
+            "status": "success",
+            "equipment_id": request.equipment_id,
+            "count": len(work_orders),
+            "work_orders": [
+                {
+                    "work_order_id": wo.work_order_id,
+                    "equipment_id": wo.equipment_id,
+                    "priority": wo.priority,
+                    "status_work_order": wo.status,
+                    "description": wo.description,
+                    "recommended_action": wo.recommended_action,
+                    "created_at": wo.created_at.isoformat() if wo.created_at else None
+                }
+                for wo in work_orders
+            ]
+        }
+
+    finally:
+        db.close()
+
+
+@app.get("/get_downtime_ranking")
+def get_downtime_ranking():
+    db = SessionLocal()
+
+    try:
+        equipment_list = db.query(Equipment).all()
+        ranking = []
+
+        downtime_by_priority = {
+            "critical": 8,
+            "high": 5,
+            "medium": 3,
+            "low": 1
+        }
+
+        for equipment in equipment_list:
+            work_orders = db.query(WorkOrder).filter(
+                WorkOrder.equipment_id == equipment.equipment_id
+            ).all()
+
+            estimated_downtime_hours = sum(
+                downtime_by_priority.get(wo.priority, 2)
+                for wo in work_orders
+            )
+
+            ranking.append({
+                "equipment_id": equipment.equipment_id,
+                "equipment_name": equipment.name,
+                "area": equipment.area,
+                "estimated_downtime_hours": estimated_downtime_hours,
+                "total_work_orders": len(work_orders)
+            })
+
+        ranking = sorted(
+            ranking,
+            key=lambda x: x["estimated_downtime_hours"],
+            reverse=True
+        )
+
+        return {
+            "status": "success",
+            "count": len(ranking),
+            "downtime_ranking": ranking
+        }
+
+    finally:
+        db.close()
+
+
+@app.post("/calculate_oee")
+def calculate_oee(request: EquipmentRequest):
+    db = SessionLocal()
+
+    try:
+        work_orders = db.query(WorkOrder).filter(
+            WorkOrder.equipment_id == request.equipment_id
+        ).all()
+
+        planned_minutes = 480
+
+        downtime_by_priority = {
+            "critical": 60,
+            "high": 40,
+            "medium": 25,
+            "low": 10
+        }
+
+        downtime_minutes = sum(
+            downtime_by_priority.get(wo.priority, 20)
+            for wo in work_orders
+            if wo.status in ["created", "in_progress"]
+        )
+
+        runtime_minutes = max(planned_minutes - downtime_minutes, 1)
+
+        availability = runtime_minutes / planned_minutes
+
+        performance = max(0.70, 1 - (len(work_orders) * 0.01))
+
+        quality = max(0.85, 1 - (len([
+            wo for wo in work_orders if wo.priority == "critical"
+        ]) * 0.02))
+
+        oee = availability * performance * quality
+
+        return {
+            "status": "success",
+            "equipment_id": request.equipment_id,
+            "planned_minutes": planned_minutes,
+            "downtime_minutes": downtime_minutes,
+            "runtime_minutes": runtime_minutes,
+            "availability": round(availability * 100, 2),
+            "performance": round(performance * 100, 2),
+            "quality": round(quality * 100, 2),
+            "oee": round(oee * 100, 2)
+        }
+
+    finally:
+        db.close()
+
+
+@app.get("/weekly_maintenance_summary")
+def weekly_maintenance_summary():
+    db = SessionLocal()
+
+    try:
+        work_orders = db.query(WorkOrder).all()
+
+        total_work_orders = len(work_orders)
+
+        open_work_orders = len([
+            wo for wo in work_orders
+            if wo.status in ["created", "in_progress"]
+        ])
+
+        critical_work_orders = len([
+            wo for wo in work_orders
+            if wo.priority == "critical"
+            and wo.status in ["created", "in_progress"]
+        ])
+
+        affected_equipment = len(set([
+            wo.equipment_id for wo in work_orders
+            if wo.status in ["created", "in_progress"]
+        ]))
+
+        return {
+            "status": "success",
+            "summary": "Weekly maintenance summary generated successfully.",
+            "total_work_orders": total_work_orders,
+            "open_work_orders": open_work_orders,
+            "critical_open_work_orders": critical_work_orders,
+            "affected_equipment": affected_equipment
+        }
+
+    finally:
+        db.close()

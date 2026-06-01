@@ -43,119 +43,133 @@ def detect_equipment_id(message: str):
 
 def is_open_work_orders_question(message: str):
     text = message.lower()
-
     keywords = [
-        "open work orders",
-        "open orders",
-        "pending work orders",
-        "active work orders",
-        "ordenes abiertas",
-        "órdenes abiertas",
-        "ordenes pendientes",
-        "órdenes pendientes"
+        "open work orders", "open orders", "pending work orders",
+        "active work orders", "ordenes abiertas", "órdenes abiertas",
+        "ordenes pendientes", "órdenes pendientes"
     ]
+    return any(keyword in text for keyword in keywords)
 
+
+def is_all_work_orders_question(message: str):
+    text = message.lower()
+    keywords = [
+        "all work orders",
+        "show all work orders",
+        "list all work orders",
+        "work order history",
+        "todas las ordenes",
+        "todas las órdenes",
+        "mostrar todas las ordenes",
+        "mostrar todas las órdenes"
+    ]
     return any(keyword in text for keyword in keywords)
 
 
 def is_risk_question(message: str):
     text = message.lower()
-
     keywords = [
-        "risk",
-        "risk score",
-        "health score",
-        "failure risk",
-        "riesgo",
-        "score",
-        "salud"
+        "risk", "risk score", "health score", "failure risk",
+        "riesgo", "score", "salud"
     ]
-
     return any(keyword in text for keyword in keywords)
 
 
 def is_spare_parts_question(message: str):
     text = message.lower()
-
     keywords = [
-        "spare parts",
-        "parts available",
-        "part available",
-        "inventory",
-        "refacciones",
-        "repuestos",
-        "partes disponibles"
+        "spare parts", "parts available", "part available", "inventory",
+        "refacciones", "repuestos", "partes disponibles"
     ]
-
     return any(keyword in text for keyword in keywords)
 
 
 def is_highest_risk_question(message: str):
     text = message.lower()
-
     keywords = [
-        "highest risk",
-        "most risky",
-        "highest risk machine",
-        "highest risk equipment",
-        "which machine has the highest risk",
-        "what machine has the highest risk",
-        "critical machines",
-        "machines at risk",
-        "highest risk asset",
+        "highest risk", "most risky", "highest risk machine",
+        "highest risk equipment", "which machine has the highest risk",
+        "what machine has the highest risk", "critical machines",
+        "machines at risk", "highest risk asset",
         "what equipment should i prioritize today",
         "what machines should i prioritize today",
         "which equipment should i prioritize today",
         "what should i prioritize today",
-        "maintenance priorities",
-        "daily priorities",
-        "prioritize today",
-        "riesgo mas alto",
-        "riesgo más alto",
-        "maquina con mayor riesgo",
-        "máquina con mayor riesgo",
-        "equipo con mayor riesgo",
-        "priorizar hoy",
+        "maintenance priorities", "daily priorities", "prioritize today",
+        "riesgo mas alto", "riesgo más alto",
+        "maquina con mayor riesgo", "máquina con mayor riesgo",
+        "equipo con mayor riesgo", "priorizar hoy",
         "prioridades de mantenimiento",
-        "que equipo debo priorizar",
-        "qué equipo debo priorizar"
+        "que equipo debo priorizar", "qué equipo debo priorizar"
     ]
-
     return any(keyword in text for keyword in keywords)
 
 
 def is_maintenance_history_question(message: str):
     text = message.lower()
-
     keywords = [
-        "maintenance history",
-        "history",
-        "past failures",
-        "repair history",
-        "failure history",
-        "historial",
-        "historial de mantenimiento",
-        "historial de fallas"
+        "maintenance history", "history", "past failures",
+        "repair history", "failure history", "historial",
+        "historial de mantenimiento", "historial de fallas"
     ]
-
     return any(keyword in text for keyword in keywords)
 
 
 def is_critical_work_orders_question(message: str):
     text = message.lower()
-
     keywords = [
-        "critical work orders",
-        "critical orders",
+        "critical work orders", "critical orders",
         "show all critical work orders",
         "open critical work orders",
         "critical maintenance orders",
-        "ordenes criticas",
-        "órdenes críticas",
-        "ordenes críticas abiertas",
-        "órdenes críticas abiertas"
+        "ordenes criticas", "órdenes críticas",
+        "ordenes críticas abiertas", "órdenes críticas abiertas"
     ]
+    return any(keyword in text for keyword in keywords)
 
+
+def is_downtime_question(message: str):
+    text = message.lower()
+    keywords = [
+        "downtime",
+        "most downtime",
+        "generating the most downtime",
+        "equipment is generating the most downtime",
+        "machine is generating the most downtime",
+        "tiempo muerto",
+        "mayor downtime",
+        "mayor tiempo muerto",
+        "mas tiempo muerto",
+        "más tiempo muerto"
+    ]
+    return any(keyword in text for keyword in keywords)
+
+
+def is_oee_question(message: str):
+    text = message.lower()
+    keywords = [
+        "oee",
+        "overall equipment effectiveness",
+        "eficiencia global",
+        "efectividad global",
+        "availability",
+        "performance",
+        "quality"
+    ]
+    return any(keyword in text for keyword in keywords)
+
+
+def is_weekly_summary_question(message: str):
+    text = message.lower()
+    keywords = [
+        "weekly maintenance summary",
+        "generate a weekly maintenance summary",
+        "weekly summary",
+        "maintenance summary",
+        "resumen semanal",
+        "resumen de mantenimiento",
+        "resumen semanal de mantenimiento"
+    ]
     return any(keyword in text for keyword in keywords)
 
 
@@ -566,6 +580,39 @@ def chat(request: UserRequest):
             }
         }
 
+    if is_downtime_question(request.message):
+        downtime = requests.get(
+            f"{TOOLS_API_URL}/get_downtime_ranking",
+            timeout=5
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": "Downtime ranking generated successfully.",
+                "downtime_ranking": downtime.get("downtime_ranking", [])
+            }
+        }
+
+    if is_weekly_summary_question(request.message):
+        summary = requests.get(
+            f"{TOOLS_API_URL}/weekly_maintenance_summary",
+            timeout=5
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": summary.get("summary"),
+                "total_work_orders": summary.get("total_work_orders"),
+                "open_work_orders": summary.get("open_work_orders"),
+                "critical_open_work_orders": summary.get("critical_open_work_orders"),
+                "affected_equipment": summary.get("affected_equipment")
+            }
+        }
+
     if is_critical_work_orders_question(request.message):
         critical_orders = requests.get(
             f"{TOOLS_API_URL}/get_critical_work_orders",
@@ -587,6 +634,46 @@ def chat(request: UserRequest):
         return {
             "status": "error",
             "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
+        }
+
+    if is_all_work_orders_question(request.message):
+        all_orders = requests.post(
+            f"{TOOLS_API_URL}/get_all_work_orders",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": f"{equipment_id} has {all_orders.get('count')} total work orders.",
+                "equipment_id": equipment_id,
+                "all_work_orders": all_orders.get("work_orders", [])
+            }
+        }
+
+    if is_oee_question(request.message):
+        oee = requests.post(
+            f"{TOOLS_API_URL}/calculate_oee",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": f"{equipment_id} OEE is {oee.get('oee')}%.",
+                "equipment_id": equipment_id,
+                "planned_minutes": oee.get("planned_minutes"),
+                "downtime_minutes": oee.get("downtime_minutes"),
+                "runtime_minutes": oee.get("runtime_minutes"),
+                "availability": oee.get("availability"),
+                "performance": oee.get("performance"),
+                "quality": oee.get("quality"),
+                "oee": oee.get("oee")
+            }
         }
 
     if is_open_work_orders_question(request.message):
@@ -679,13 +766,17 @@ def chat(request: UserRequest):
 
     return {
         "status": "not_supported_yet",
-        "message": "This chat endpoint currently supports open work orders, risk score, spare parts, highest risk equipment, maintenance history, and critical work orders questions.",
+        "message": "This chat endpoint currently supports open work orders, all work orders, risk score, spare parts, highest risk equipment, downtime ranking, OEE, weekly summary, maintenance history, and critical work orders questions.",
         "examples": [
             "Are there open work orders for ROBOT-01?",
+            "Show all work orders for PRESS-01",
             "What is the risk score for PRESS-01?",
             "Are spare parts available for CNC-01?",
             "Which machine has the highest risk?",
             "What equipment should I prioritize today?",
+            "Which equipment is generating the most downtime?",
+            "What is the OEE of PRESS-01?",
+            "Generate a weekly maintenance summary.",
             "What maintenance history does ROBOT-01 have?",
             "Show all critical work orders."
         ]

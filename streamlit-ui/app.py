@@ -11,13 +11,13 @@ st.set_page_config(
 
 st.title("🛠️ Maintenance AI Assistant")
 st.write(
-    "Ask questions about machine work orders, risk score, spare parts, "
-    "maintenance history, critical work orders, or daily priorities."
+    "Ask questions about work orders, risk score, spare parts, downtime, OEE, "
+    "maintenance history, critical work orders, or weekly summaries."
 )
 
 question = st.text_input(
     "Question",
-    value="What equipment should I prioritize today?"
+    value="Generate a weekly maintenance summary."
 )
 
 user_id = st.text_input(
@@ -45,7 +45,141 @@ if st.button("Ask"):
 
             st.success(answer.get("summary", "Request completed."))
 
-            if "highest_risk_equipment" in answer:
+            # Weekly maintenance summary
+            if "total_work_orders" in answer and "critical_open_work_orders" in answer:
+                st.subheader("Weekly Maintenance Summary")
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                col1.metric(
+                    "Total Work Orders",
+                    answer.get("total_work_orders", "N/A")
+                )
+
+                col2.metric(
+                    "Open Work Orders",
+                    answer.get("open_work_orders", "N/A")
+                )
+
+                col3.metric(
+                    "Critical Open Orders",
+                    answer.get("critical_open_work_orders", "N/A")
+                )
+
+                col4.metric(
+                    "Affected Equipment",
+                    answer.get("affected_equipment", "N/A")
+                )
+
+            # OEE response
+            elif "oee" in answer:
+                st.subheader("OEE Analysis")
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                col1.metric(
+                    "OEE",
+                    f"{answer.get('oee', 'N/A')}%"
+                )
+
+                col2.metric(
+                    "Availability",
+                    f"{answer.get('availability', 'N/A')}%"
+                )
+
+                col3.metric(
+                    "Performance",
+                    f"{answer.get('performance', 'N/A')}%"
+                )
+
+                col4.metric(
+                    "Quality",
+                    f"{answer.get('quality', 'N/A')}%"
+                )
+
+                col5, col6, col7 = st.columns(3)
+
+                col5.metric(
+                    "Planned Minutes",
+                    answer.get("planned_minutes", "N/A")
+                )
+
+                col6.metric(
+                    "Downtime Minutes",
+                    answer.get("downtime_minutes", "N/A")
+                )
+
+                col7.metric(
+                    "Runtime Minutes",
+                    answer.get("runtime_minutes", "N/A")
+                )
+
+            # Downtime ranking
+            elif "downtime_ranking" in answer:
+                st.subheader("Downtime Ranking")
+
+                downtime_ranking = answer.get("downtime_ranking", [])
+
+                if downtime_ranking:
+                    st.dataframe(
+                        downtime_ranking,
+                        use_container_width=True
+                    )
+
+                    top = downtime_ranking[0]
+
+                    col1, col2, col3 = st.columns(3)
+
+                    col1.metric(
+                        "Highest Downtime Equipment",
+                        top.get("equipment_id", "N/A")
+                    )
+
+                    col2.metric(
+                        "Estimated Downtime Hours",
+                        top.get("estimated_downtime_hours", "N/A")
+                    )
+
+                    col3.metric(
+                        "Total Work Orders",
+                        top.get("total_work_orders", "N/A")
+                    )
+                else:
+                    st.info("No downtime data available.")
+
+            # All work orders for one equipment
+            elif "all_work_orders" in answer:
+                st.subheader("All Work Orders")
+
+                all_orders = answer.get("all_work_orders", [])
+
+                if all_orders:
+                    st.dataframe(
+                        all_orders,
+                        use_container_width=True
+                    )
+
+                    col1, col2 = st.columns(2)
+
+                    col1.metric(
+                        "Total Work Orders",
+                        len(all_orders)
+                    )
+
+                    critical_count = len([
+                        order for order in all_orders
+                        if order.get("priority") == "critical"
+                    ])
+
+                    col2.metric(
+                        "Critical Work Orders",
+                        critical_count
+                    )
+                else:
+                    st.info("No work orders found.")
+
+            # Highest risk equipment ranking
+            elif "highest_risk_equipment" in answer:
                 st.subheader("Highest Risk Equipment")
 
                 highest_risk = answer.get("highest_risk_equipment", [])
@@ -83,6 +217,7 @@ if st.button("Ask"):
                 else:
                     st.info("No high-risk equipment found.")
 
+            # Critical work orders
             elif "critical_work_orders" in answer:
                 critical_orders = answer.get("critical_work_orders", [])
 
@@ -115,12 +250,30 @@ if st.button("Ask"):
                 else:
                     st.info("No critical work orders found.")
 
+            # Maintenance history
             elif "maintenance_history" in answer:
                 st.subheader("Maintenance History")
 
                 history = answer.get("maintenance_history", {})
 
                 if isinstance(history, dict):
+                    col1, col2, col3 = st.columns(3)
+
+                    col1.metric(
+                        "Last Failure",
+                        history.get("last_failure", "N/A")
+                    )
+
+                    col2.metric(
+                        "Last Action",
+                        history.get("last_action", "N/A")
+                    )
+
+                    col3.metric(
+                        "Days Since Last Event",
+                        history.get("days_since_last_event", "N/A")
+                    )
+
                     st.json(history)
                 else:
                     st.dataframe(
@@ -128,6 +281,7 @@ if st.button("Ask"):
                         use_container_width=True
                     )
 
+            # Standard risk / machine-specific response
             else:
                 col1, col2, col3 = st.columns(3)
 
@@ -170,7 +324,19 @@ if st.button("Ask"):
                         "open_work_orders",
                         "highest_risk_equipment",
                         "critical_work_orders",
-                        "maintenance_history"
+                        "maintenance_history",
+                        "all_work_orders",
+                        "downtime_ranking",
+                        "oee",
+                        "availability",
+                        "performance",
+                        "quality",
+                        "planned_minutes",
+                        "downtime_minutes",
+                        "runtime_minutes",
+                        "total_work_orders",
+                        "critical_open_work_orders",
+                        "affected_equipment"
                     ]
                 }
 
