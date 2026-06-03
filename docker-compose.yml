@@ -1,33 +1,4 @@
 services:
-  orchestrator:
-    build: ./orchestrator
-    container_name: maintenance-agent-orchestrator
-    ports:
-      - "8000:8000"
-    environment:
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - TOOLS_API_URL=http://tools-api:8001
-      - LOGGING_API_URL=http://logging-service:8002
-    depends_on:
-      - tools-api
-      - logging-service
-
-  tools-api:
-    build: ./tools-api
-    container_name: maintenance-tools-api
-    ports:
-      - "8001:8001"
-    environment:
-      - DATABASE_URL=postgresql://maintenance_user:maintenance_pass@postgres-db:5432/maintenance_db
-    depends_on:
-      - postgres-db
-
-  logging-service:
-    build: ./logging-service
-    container_name: maintenance-logging-service
-    ports:
-      - "8002:8002"
-
   postgres-db:
     image: postgres:16
     container_name: maintenance-postgres-db
@@ -40,5 +11,90 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: maintenance-azurite
+    ports:
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
+    command: "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0"
+    volumes:
+      - azurite_data:/data
+
+  tools-api:
+    build: ./tools-api
+    container_name: maintenance-tools-api
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://maintenance_user:maintenance_pass@postgres-db:5432/maintenance_db
+    depends_on:
+      - postgres-db
+
+  azure-functions-tools:
+    build:
+      context: ./azure-functions-tools
+    container_name: maintenance-azure-functions-tools
+    ports:
+      - "7071:80"
+    environment:
+      - TOOLS_API_URL=http://tools-api:8001
+      - AzureWebJobsStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFeASbF3lWQWz6fJfM0iJ9nN+4h1T4I6w==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
+    depends_on:
+      - tools-api
+      - azurite
+
+  durable-workflows:
+    build:
+      context: ./durable-workflows
+    container_name: maintenance-durable-workflows
+    ports:
+      - "7072:80"
+    environment:
+      - TOOLS_API_URL=http://tools-api:8001
+      - AZURE_FUNCTIONS_URL=http://azure-functions-tools/api
+      - WEBSITE_HOSTNAME=localhost:7072
+      - AzureWebJobsSecretStorageType=files
+      - AzureWebJobsStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFeASbF3lWQWz6fJfM0iJ9nN+4h1T4I6w==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
+    depends_on:
+      - tools-api
+      - azure-functions-tools
+      - azurite
+
+  logging-service:
+    build: ./logging-service
+    container_name: maintenance-logging-service
+    ports:
+      - "8002:8002"
+
+  orchestrator:
+    build: ./orchestrator
+    container_name: maintenance-agent-orchestrator
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - TOOLS_API_URL=http://tools-api:8001
+      - LOGGING_API_URL=http://logging-service:8002
+      - AZURE_FUNCTIONS_URL=http://azure-functions-tools/api
+    depends_on:
+      - tools-api
+      - logging-service
+      - azure-functions-tools
+
+  streamlit-ui:
+    build:
+      context: ./streamlit-ui
+    container_name: maintenance-streamlit-ui
+    ports:
+      - "8501:8501"
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8000
+    depends_on:
+      - orchestrator
+
 volumes:
   postgres_data:
+  azurite_data:
+
