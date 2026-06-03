@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI
+from fastapi import FastAPI
 from pydantic import BaseModel
 import requests
 import os
@@ -205,6 +205,58 @@ def is_equipment_info_question(message: str):
         "tell me about", "details for",
         "informacion del equipo", "información del equipo",
         "estado de", "detalles del equipo"
+    ]
+    return any(keyword in text for keyword in keywords)
+def is_recommended_maintenance_question(message: str):
+    text = message.lower()
+    keywords = [
+        "recommended maintenance", "recomended maintenance",
+        "maintenance recommendation", "recommend maintenance",
+        "recommended action", "what should i do",
+        "what maintenance is recommended",
+        "what do you recommend", "maintenance advice",
+        "recommendation for", "recommended maintenance for",
+        "recomendacion de mantenimiento", "recomendación de mantenimiento",
+        "mantenimiento recomendado", "que mantenimiento recomiendas",
+        "qué mantenimiento recomiendas"
+    ]
+    return any(keyword in text for keyword in keywords)
+
+def is_common_failure_question(message: str):
+    text = message.lower()
+    keywords = [
+        "most common failure",
+        "common failure",
+        "top failure",
+        "top failures",
+        "most frequent failure",
+        "frequent failures",
+        "failure types",
+        "what failure is most common",
+        "which is the most common failure",
+        "falla mas comun",
+        "falla más común",
+        "fallas mas comunes",
+        "fallas más comunes"
+    ]
+    return any(keyword in text for keyword in keywords)
+def is_daily_maintenance_recommendation_question(message: str):
+    text = message.lower()
+    keywords = [
+        "what maintenance should be done today",
+        "what maintenance should i do today",
+        "maintenance for today",
+        "today maintenance",
+        "today's maintenance",
+        "daily maintenance recommendation",
+        "daily maintenance priorities",
+        "what should maintenance do today",
+        "what should be done today",
+        "mantenimiento de hoy",
+        "mantenimiento para hoy",
+        "que mantenimiento se debe hacer hoy",
+        "qué mantenimiento se debe hacer hoy",
+        "prioridades de mantenimiento hoy"
     ]
     return any(keyword in text for keyword in keywords)
 
@@ -653,6 +705,69 @@ def chat(request: UserRequest):
             }
         }
 
+    if is_daily_maintenance_recommendation_question(request.message):
+        highest_risk = requests.get(
+            f"{TOOLS_API_URL}/get_highest_risk_equipment",
+            timeout=5
+        ).json()
+
+        critical_orders = requests.get(
+            f"{TOOLS_API_URL}/get_critical_work_orders",
+            timeout=5
+        ).json()
+
+        downtime = requests.get(
+            f"{TOOLS_API_URL}/get_downtime_ranking",
+            timeout=5
+        ).json()
+
+        risk_items = highest_risk.get("highest_risk_equipment", [])[:3]
+        critical_items = critical_orders.get("critical_work_orders", [])[:5]
+        downtime_items = downtime.get("downtime_ranking", [])[:3]
+
+        recommendations = []
+        for item in risk_items:
+            recommendations.append({
+                "equipment_id": item.get("equipment_id"),
+                "priority": "critical" if item.get("risk_level") == "critical" else "high",
+                "reason": f"Risk level {item.get('risk_level')} with score {item.get('risk_score')}.",
+                "recommended_action": "Inspect equipment condition, review open work orders, and validate spare parts before starting work."
+            })
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": "Daily maintenance recommendations generated from risk ranking, critical work orders, and downtime data.",
+                "recommended_focus": recommendations,
+                "critical_open_work_orders": critical_items,
+                "highest_downtime_equipment": downtime_items,
+                "data_sources": [
+                    "get_highest_risk_equipment",
+                    "get_critical_work_orders",
+                    "get_downtime_ranking"
+                ]
+            }
+        }
+    if is_common_failure_question(request.message):
+        failures = requests.get(
+            f"{TOOLS_API_URL}/dashboard/top-failure-types",
+            timeout=5
+        ).json()
+
+        failure_data = failures.get("data", [])
+        most_common = failure_data[0] if failure_data else None
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": "Most common failure types generated successfully.",
+                "most_common_failure": most_common,
+                "top_failure_types": failure_data,
+                "data_source": "dashboard/top-failure-types"
+            }
+        }
     equipment_id = detect_equipment_id(request.message)
 
     if not equipment_id:
@@ -678,6 +793,87 @@ def chat(request: UserRequest):
             }
         }
 
+    if is_recommended_maintenance_question(request.message):
+        equipment = requests.post(
+            f"{TOOLS_API_URL}/get_equipment_info",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        history = requests.post(
+            f"{TOOLS_API_URL}/get_maintenance_history",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        spare_parts = requests.post(
+            f"{TOOLS_API_URL}/check_spare_parts",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        open_orders = requests.post(
+            f"{TOOLS_API_URL}/get_open_work_orders",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        risk = requests.post(
+            f"{TOOLS_API_URL}/predict_failure_risk",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        latest_failure = history.get("last_failure")
+        latest_action = history.get("last_action")
+        recurrence_risk = history.get("recurrence_risk")
+        risk_level = risk.get("risk_level")
+        risk_score = risk.get("risk_score")
+        criticality = equipment.get("criticality")
+        low_stock_parts = spare_parts.get("low_stock_parts", 0)
+        open_order_count = open_orders.get("count", 0)
+
+        priority = "medium"
+        if risk_level in ["critical", "high"] or criticality == "high":
+            priority = "high"
+        if risk_level == "critical" or open_order_count > 0:
+            priority = "critical"
+
+        actions = [
+            latest_action or "Perform a preventive maintenance inspection",
+            "Review open work orders before starting the intervention",
+            "Validate spare parts availability before scheduling downtime"
+        ]
+
+        if latest_failure:
+            actions.insert(0, f"Inspect the recurring failure mode: {latest_failure}")
+        if low_stock_parts > 0:
+            actions.append("Reorder low-stock spare parts before closing the maintenance plan")
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": f"Recommended maintenance generated for {equipment_id}.",
+                "equipment_id": equipment_id,
+                "priority": priority,
+                "risk_level": risk_level,
+                "risk_score": risk_score,
+                "recurrence_risk": recurrence_risk,
+                "latest_failure": latest_failure,
+                "recommended_actions": actions,
+                "open_work_orders": open_order_count,
+                "spare_parts_available": spare_parts.get("available"),
+                "low_stock_parts": low_stock_parts,
+                "data_sources": [
+                    "get_equipment_info",
+                    "get_maintenance_history",
+                    "check_spare_parts",
+                    "get_open_work_orders",
+                    "predict_failure_risk"
+                ]
+            }
+        }
     if is_create_work_order_question(request.message):
         payload = {
             "request_id": "CHAT-AZFUNC-0001",
@@ -835,10 +1031,13 @@ def chat(request: UserRequest):
 
     return {
         "status": "not_supported_yet",
-        "message": "This chat endpoint currently supports equipment information, open work orders, all work orders, serverless work order creation, risk score, spare parts, highest risk equipment, lowest OEE equipment, downtime ranking, OEE, weekly summary, maintenance history, and critical work orders questions.",
+        "message": "This chat endpoint currently supports equipment information, recommended maintenance, daily maintenance recommendations, common failure analysis, open work orders, all work orders, serverless work order creation, risk score, spare parts, highest risk equipment, lowest OEE equipment, downtime ranking, OEE, weekly summary, maintenance history, and critical work orders questions.",
         "examples": [
             "What is the status of PRESS-01?",
             "Show information for ROBOT-01",
+            "Recommended maintenance for PRESS-01",
+            "What maintenance should be done today?",
+            "Which is the most common failure?",
             "Are there open work orders for ROBOT-01?",
             "Show all work orders for PRESS-01",
             "Create a work order for PRESS-01 because it is overheating",
