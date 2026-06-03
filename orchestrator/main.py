@@ -244,8 +244,13 @@ def is_daily_maintenance_recommendation_question(message: str):
     text = message.lower()
     keywords = [
         "what maintenance should be done today",
+        "what is the recommended maintenance for today",
+        "what is the recommended maintance for today",
+        "recommended maintenance for today",
+        "recommended maintance for today",
+        "recommend maintenance for today",
         "what maintenance should i do today",
-        "maintenance for today",
+        "maintenance for today", "maintance for today",
         "today maintenance",
         "today's maintenance",
         "daily maintenance recommendation",
