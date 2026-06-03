@@ -66,58 +66,88 @@ def get_maintenance_history(request: EquipmentRequest):
     db = SessionLocal()
 
     try:
-        history = db.query(MaintenanceHistory).filter(
-            MaintenanceHistory.equipment_id == request.equipment_id
-        ).first()
+        history_records = (
+            db.query(MaintenanceHistory)
+            .filter(MaintenanceHistory.equipment_id == request.equipment_id)
+            .order_by(MaintenanceHistory.days_since_last_event.asc())
+            .all()
+        )
 
-        if not history:
+        if not history_records:
             return {
                 "status": "error",
                 "error_code": "HISTORY_NOT_FOUND",
                 "message": "No maintenance history found for this equipment."
             }
 
+        latest = history_records[0]
+
         return {
             "status": "success",
-            "equipment_id": history.equipment_id,
-            "last_failure": history.last_failure,
-            "last_action": history.last_action,
-            "days_since_last_event": history.days_since_last_event,
-            "recurrence_risk": history.recurrence_risk
+            "equipment_id": request.equipment_id,
+            "count": len(history_records),
+            "coverage_years": 5,
+            "last_failure": latest.last_failure,
+            "last_action": latest.last_action,
+            "days_since_last_event": latest.days_since_last_event,
+            "recurrence_risk": latest.recurrence_risk,
+            "history": [
+                {
+                    "last_failure": record.last_failure,
+                    "last_action": record.last_action,
+                    "days_since_last_event": record.days_since_last_event,
+                    "recurrence_risk": record.recurrence_risk
+                }
+                for record in history_records
+            ]
         }
 
     finally:
         db.close()
-
 
 @app.post("/check_spare_parts")
 def check_spare_parts(request: EquipmentRequest):
     db = SessionLocal()
 
     try:
-        spare_part = db.query(SparePart).filter(
-            SparePart.equipment_id == request.equipment_id
-        ).first()
+        spare_parts = (
+            db.query(SparePart)
+            .filter(SparePart.equipment_id == request.equipment_id)
+            .order_by(SparePart.quantity.asc())
+            .all()
+        )
 
-        if not spare_part:
+        if not spare_parts:
             return {
                 "status": "error",
                 "error_code": "SPARE_PART_NOT_FOUND",
                 "message": "No spare parts found for this equipment."
             }
 
+        low_stock_parts = [part for part in spare_parts if part.quantity <= 2]
+        available_parts = [part for part in spare_parts if part.available and part.quantity > 0]
+
         return {
             "status": "success",
-            "equipment_id": spare_part.equipment_id,
-            "part_type": spare_part.part_type,
-            "available": spare_part.available,
-            "quantity": spare_part.quantity,
-            "warehouse": spare_part.warehouse
+            "equipment_id": request.equipment_id,
+            "available": len(available_parts) > 0,
+            "total_parts": len(spare_parts),
+            "available_parts": len(available_parts),
+            "low_stock_parts": len(low_stock_parts),
+            "inventory": [
+                {
+                    "part_type": part.part_type,
+                    "available": part.available,
+                    "quantity": part.quantity,
+                    "warehouse": part.warehouse,
+                    "stock_status": "low_stock" if part.quantity <= 2 else "ok"
+                }
+                for part in spare_parts
+            ]
         }
 
     finally:
         db.close()
-
 
 @app.post("/create_work_order")
 def create_work_order(request: WorkOrderRequest):
@@ -757,13 +787,23 @@ def weekly_maintenance_summary():
     db = SessionLocal()
 
     try:
-        work_orders = db.query(WorkOrder).all()
+        from datetime import datetime, timedelta
+
+        week_start = datetime.utcnow() - timedelta(days=7)
+        work_orders = db.query(WorkOrder).filter(
+            WorkOrder.created_at >= week_start
+        ).all()
 
         total_work_orders = len(work_orders)
 
         open_work_orders = len([
             wo for wo in work_orders
             if wo.status in ["created", "in_progress"]
+        ])
+
+        completed_work_orders = len([
+            wo for wo in work_orders
+            if wo.status in ["completed", "closed"]
         ])
 
         critical_work_orders = len([
@@ -774,16 +814,86 @@ def weekly_maintenance_summary():
 
         affected_equipment = len(set([
             wo.equipment_id for wo in work_orders
-            if wo.status in ["created", "in_progress"]
         ]))
 
         return {
             "status": "success",
             "summary": "Weekly maintenance summary generated successfully.",
+            "period_days": 7,
             "total_work_orders": total_work_orders,
+            "completed_work_orders": completed_work_orders,
             "open_work_orders": open_work_orders,
             "critical_open_work_orders": critical_work_orders,
             "affected_equipment": affected_equipment
+        }
+
+    finally:
+        db.close()
+@app.get("/get_oee_ranking")
+def get_oee_ranking():
+    db = SessionLocal()
+
+    try:
+        equipment_list = db.query(Equipment).all()
+        oee_results = []
+
+        for equipment in equipment_list:
+            work_orders = db.query(WorkOrder).filter(
+                WorkOrder.equipment_id == equipment.equipment_id
+            ).all()
+
+            planned_minutes = 480
+
+            downtime_by_priority = {
+                "critical": 60,
+                "high": 40,
+                "medium": 25,
+                "low": 10
+            }
+
+            downtime_minutes = sum(
+                downtime_by_priority.get(wo.priority, 20)
+                for wo in work_orders
+                if wo.status in ["created", "in_progress"]
+            )
+
+            runtime_minutes = max(planned_minutes - downtime_minutes, 1)
+
+            availability = runtime_minutes / planned_minutes
+            performance = max(0.70, 1 - (len(work_orders) * 0.01))
+
+            critical_count = len([
+                wo for wo in work_orders
+                if wo.priority == "critical"
+            ])
+
+            quality = max(0.85, 1 - (critical_count * 0.02))
+
+            oee = availability * performance * quality
+
+            oee_results.append({
+                "equipment_id": equipment.equipment_id,
+                "equipment_name": equipment.name,
+                "area": equipment.area,
+                "planned_minutes": planned_minutes,
+                "downtime_minutes": downtime_minutes,
+                "runtime_minutes": runtime_minutes,
+                "availability": round(availability * 100, 2),
+                "performance": round(performance * 100, 2),
+                "quality": round(quality * 100, 2),
+                "oee": round(oee * 100, 2)
+            })
+
+        oee_results = sorted(
+            oee_results,
+            key=lambda x: x["oee"]
+        )
+
+        return {
+            "status": "success",
+            "count": len(oee_results),
+            "lowest_oee_equipment": oee_results[:5],
+            "oee_ranking": oee_results
         }
 
     finally:
