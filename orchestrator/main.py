@@ -222,6 +222,58 @@ def is_recommended_maintenance_question(message: str):
     ]
     return any(keyword in text for keyword in keywords)
 
+
+def is_failure_pattern_question(message: str):
+    text = message.lower()
+    keywords = [
+        "has this failure happened before",
+        "happened before",
+        "failure pattern",
+        "recurring failure",
+        "repeated failure",
+        "how many times",
+        "how often",
+        "has oil leakage happened before",
+        "analyze failure",
+        "failure recurrence",
+        "similar work orders",
+        "patron de falla",
+        "patrón de falla",
+        "falla recurrente",
+        "cuantas veces",
+        "cuántas veces"
+    ]
+    return any(keyword in text for keyword in keywords)
+
+
+def extract_failure_type(message: str):
+    text = message.lower()
+    known_failures = [
+        "oil leakage", "hydraulic pressure drop", "high vibration",
+        "overheating", "sensor failure", "airflow restriction",
+        "spindle vibration", "belt slipping", "temperature deviation",
+        "low air pressure", "die alignment issue", "wire feed issue",
+        "electrical fault", "low flow rate", "jam detected"
+    ]
+
+    for failure in known_failures:
+        if failure in text:
+            return failure.title()
+
+    patterns = [
+        r"(?:failure|falla)\s+(?:in|on|for|de)\s+([a-zA-Z\s]+?)\s+(?:on|in|for)\s+",
+        r"(?:has|have)\s+([a-zA-Z\s]+?)\s+happened",
+        r"analyze\s+([a-zA-Z\s]+?)\s+(?:on|for)\s+"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            candidate = match.group(1).strip()
+            if candidate:
+                return candidate.title()
+
+    return None
 def is_common_failure_question(message: str):
     text = message.lower()
     keywords = [
@@ -844,6 +896,49 @@ def chat(request: UserRequest):
             "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
         }
 
+    if is_failure_pattern_question(request.message):
+        failure_type = extract_failure_type(request.message)
+        pattern = requests.post(
+            f"{TOOLS_API_URL}/analyze_failure_pattern",
+            json={
+                "equipment_id": equipment_id,
+                "failure_type": failure_type,
+                "years": 2
+            },
+            timeout=5
+        ).json()
+
+        if pattern.get("status") != "success":
+            return {
+                "status": "error",
+                "question": request.message,
+                "message": pattern.get("message", "No failure pattern data available.")
+            }
+
+        display_lines = [
+            f"### Failure Pattern Analysis for {equipment_id}",
+            "",
+            f"Failure type: **{pattern.get('failure_type')}**",
+            f"Occurrences in last {pattern.get('analysis_window_years')} years: **{pattern.get('occurrences')}**",
+            f"Recurrence level: **{pattern.get('recurrence_level')}**",
+            f"Average days between failures: **{pattern.get('average_days_between_failures') or 'N/A'}**",
+            "",
+            f"Most common corrective action: **{pattern.get('most_common_action')}**",
+            "",
+            f"Recommendation: {pattern.get('recommendation')}",
+            "",
+            f"Confidence: **{pattern.get('confidence')}**"
+        ]
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "display_answer": "\n".join(display_lines),
+            "answer": {
+                "summary": f"Failure pattern analysis generated for {equipment_id}.",
+                "failure_pattern_analysis": pattern
+            }
+        }
     if is_equipment_info_question(request.message):
         equipment = requests.post(
             f"{TOOLS_API_URL}/get_equipment_info",
@@ -1118,13 +1213,14 @@ def chat(request: UserRequest):
 
     return {
         "status": "not_supported_yet",
-        "message": "This chat endpoint currently supports equipment information, recommended maintenance, daily maintenance recommendations, common failure analysis, open work orders, all work orders, serverless work order creation, risk score, spare parts, highest risk equipment, lowest OEE equipment, downtime ranking, OEE, weekly summary, maintenance history, and critical work orders questions.",
+        "message": "This chat endpoint currently supports equipment information, recommended maintenance, daily maintenance recommendations, common failure analysis, failure pattern analysis, open work orders, all work orders, serverless work order creation, risk score, spare parts, highest risk equipment, lowest OEE equipment, downtime ranking, OEE, weekly summary, maintenance history, and critical work orders questions.",
         "examples": [
             "What is the status of PRESS-01?",
             "Show information for ROBOT-01",
             "Recommended maintenance for PRESS-01",
             "What maintenance should be done today?",
             "Which is the most common failure?",
+            "Has oil leakage happened before on PRESS-01?",
             "Are there open work orders for ROBOT-01?",
             "Show all work orders for PRESS-01",
             "Create a work order for PRESS-01 because it is overheating",

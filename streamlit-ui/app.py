@@ -203,6 +203,43 @@ if st.button("Ask"):
                 else:
                     st.info("No downtime data available.")
 
+            # Failure pattern analysis
+            elif "failure_pattern_analysis" in answer:
+                st.subheader("Failure Pattern Analysis")
+
+                pattern = answer.get("failure_pattern_analysis", {})
+
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Failure Type", pattern.get("failure_type", "N/A"))
+                col2.metric("Occurrences", pattern.get("occurrences", "N/A"))
+                col3.metric("Recurrence", pattern.get("recurrence_level", "N/A"))
+                col4.metric("Confidence", pattern.get("confidence", "N/A"))
+
+                st.write(pattern.get("recommendation", "No recommendation available."))
+
+                if pattern.get("failure_distribution"):
+                    st.subheader("Failure Distribution")
+                    st.dataframe(
+                        pattern.get("failure_distribution", []),
+                        use_container_width=True
+                    )
+
+                if pattern.get("action_distribution"):
+                    st.subheader("Corrective Actions Used")
+                    st.dataframe(
+                        pattern.get("action_distribution", []),
+                        use_container_width=True
+                    )
+
+                if pattern.get("recent_matching_orders"):
+                    st.subheader("Recent Matching Work Orders")
+                    st.dataframe(
+                        pattern.get("recent_matching_orders", []),
+                        use_container_width=True
+                    )
+
+                with st.expander("Technical Details"):
+                    st.json(pattern)
             # Daily maintenance recommendations
             elif "recommended_focus" in answer:
                 st.subheader("Recommended Focus")

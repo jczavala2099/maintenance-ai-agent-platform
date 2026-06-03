@@ -222,6 +222,56 @@ try:
         ("PRESS-02", "Oil leakage", "critical", "created", 14),
     ]
 
+    recurring_failure_cases = [
+        {
+            "equipment_id": "PRESS-01",
+            "failure": "Oil leakage",
+            "action": "Replace seals and inspect fittings",
+            "priority": "high",
+            "count": 13,
+            "max_age_days": 700
+        },
+        {
+            "equipment_id": "ROBOT-01",
+            "failure": "High vibration",
+            "action": "Inspect bearings, mounting base and alignment",
+            "priority": "critical",
+            "count": 9,
+            "max_age_days": 620
+        },
+        {
+            "equipment_id": "OVEN-01",
+            "failure": "Temperature deviation",
+            "action": "Calibrate temperature loop and inspect heater elements",
+            "priority": "high",
+            "count": 8,
+            "max_age_days": 680
+        }
+    ]
+
+    recurring_index = 1
+    for case in recurring_failure_cases:
+        if case["count"] <= 1:
+            intervals = [case["max_age_days"]]
+        else:
+            step = max(1, case["max_age_days"] // (case["count"] - 1))
+            intervals = [index * step for index in range(case["count"])]
+
+        for age_days in intervals:
+            status = "closed" if age_days > 30 else random.choice(["created", "in_progress"])
+            db.add(WorkOrder(
+                work_order_id="OT-" + str(uuid4())[:8],
+                request_id=f"REC-2026-{recurring_index:04d}",
+                equipment_id=case["equipment_id"],
+                priority=case["priority"],
+                description=f"{case['failure']} detected on {case['equipment_id']}",
+                recommended_action=case["action"],
+                requested_by=random.choice(requesters),
+                assigned_team=random.choice(teams),
+                status=status,
+                created_at=today - timedelta(days=age_days)
+            ))
+            recurring_index += 1
     for index, (equipment_id, failure, priority, status, age_days) in enumerate(active_cases, start=1):
         db.add(WorkOrder(
             work_order_id="OT-" + str(uuid4())[:8],
@@ -244,6 +294,7 @@ try:
     print("- 80 spare parts inventory records")
     print("- 650 historical work orders across 5 years")
     print("- 10 active recent work orders for demo scenarios")
+    print("- 30 recurring failure records for pattern analysis")
 
 finally:
     db.close()

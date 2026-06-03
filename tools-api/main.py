@@ -23,6 +23,13 @@ class WorkOrderRequest(BaseModel):
     requested_by: str | None = None
 
 
+
+
+class FailurePatternRequest(BaseModel):
+    equipment_id: str
+    failure_type: str | None = None
+    years: int = 2
+
 @app.get("/")
 def health_check():
     return {
@@ -894,6 +901,139 @@ def get_oee_ranking():
             "count": len(oee_results),
             "lowest_oee_equipment": oee_results[:5],
             "oee_ranking": oee_results
+        }
+
+    finally:
+        db.close()
+@app.post("/analyze_failure_pattern")
+def analyze_failure_pattern(request: FailurePatternRequest):
+    db = SessionLocal()
+
+    try:
+        from datetime import datetime, timedelta
+
+        start_date = datetime.utcnow() - timedelta(days=365 * request.years)
+
+        query = db.query(WorkOrder).filter(
+            WorkOrder.equipment_id == request.equipment_id,
+            WorkOrder.created_at >= start_date
+        )
+
+        if request.failure_type:
+            query = query.filter(
+                WorkOrder.description.ilike(f"%{request.failure_type}%")
+            )
+
+        work_orders = query.order_by(WorkOrder.created_at.desc()).all()
+
+        if not work_orders:
+            return {
+                "status": "error",
+                "error_code": "NO_PATTERN_DATA",
+                "message": "No matching work orders found for this failure pattern."
+            }
+
+        def extract_failure_type(description: str):
+            marker = " detected on "
+            if description and marker in description:
+                return description.split(marker)[0].strip()
+            return description or "Unknown failure"
+
+        failure_counts = {}
+        action_counts = {}
+        dates = []
+        critical_count = 0
+        open_count = 0
+
+        for order in work_orders:
+            failure = extract_failure_type(order.description)
+            failure_counts[failure] = failure_counts.get(failure, 0) + 1
+
+            action = order.recommended_action or "Review equipment condition"
+            action_counts[action] = action_counts.get(action, 0) + 1
+
+            if order.created_at:
+                dates.append(order.created_at)
+
+            if order.priority == "critical":
+                critical_count += 1
+
+            if order.status in ["created", "in_progress"]:
+                open_count += 1
+
+        sorted_failures = sorted(
+            failure_counts.items(),
+            key=lambda item: item[1],
+            reverse=True
+        )
+        sorted_actions = sorted(
+            action_counts.items(),
+            key=lambda item: item[1],
+            reverse=True
+        )
+
+        primary_failure, primary_count = sorted_failures[0]
+        most_common_action = sorted_actions[0][0] if sorted_actions else "Perform preventive inspection"
+
+        mtbf_days = None
+        if len(dates) >= 2:
+            dates_sorted = sorted(dates)
+            intervals = [
+                (dates_sorted[index] - dates_sorted[index - 1]).days
+                for index in range(1, len(dates_sorted))
+            ]
+            mtbf_days = round(sum(intervals) / len(intervals), 1)
+
+        if primary_count >= 10 or critical_count >= 3:
+            recurrence_level = "high"
+        elif primary_count >= 4:
+            recurrence_level = "medium"
+        else:
+            recurrence_level = "low"
+
+        confidence = min(0.95, round(0.45 + (primary_count * 0.04) + (critical_count * 0.03), 2))
+
+        recommendation = (
+            f"{primary_failure} has repeated {primary_count} times in the last {request.years} years. "
+            f"Recommended action: {most_common_action}. "
+            "Validate spare parts, inspect recurring components, and schedule preventive work before production impact increases."
+        )
+
+        return {
+            "status": "success",
+            "equipment_id": request.equipment_id,
+            "failure_type": primary_failure,
+            "requested_failure_type": request.failure_type,
+            "analysis_window_years": request.years,
+            "matching_work_orders": len(work_orders),
+            "occurrences": primary_count,
+            "critical_occurrences": critical_count,
+            "open_work_orders": open_count,
+            "average_days_between_failures": mtbf_days,
+            "recurrence_level": recurrence_level,
+            "most_common_action": most_common_action,
+            "confidence": confidence,
+            "recommendation": recommendation,
+            "failure_distribution": [
+                {"failure_type": failure, "count": count}
+                for failure, count in sorted_failures[:10]
+            ],
+            "action_distribution": [
+                {"recommended_action": action, "count": count}
+                for action, count in sorted_actions[:10]
+            ],
+            "recent_matching_orders": [
+                {
+                    "work_order_id": order.work_order_id,
+                    "equipment_id": order.equipment_id,
+                    "failure_type": extract_failure_type(order.description),
+                    "priority": order.priority,
+                    "status_work_order": order.status,
+                    "recommended_action": order.recommended_action,
+                    "created_at": order.created_at.isoformat() if order.created_at else None
+                }
+                for order in work_orders[:10]
+            ]
         }
 
     finally:
