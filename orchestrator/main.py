@@ -668,12 +668,31 @@ def chat(request: UserRequest):
             timeout=5
         ).json()
 
+        downtime_ranking = downtime.get("downtime_ranking", [])
+        display_lines = ["### Downtime Ranking", ""]
+        if downtime_ranking:
+            top = downtime_ranking[0]
+            display_lines.append(
+                f"Highest downtime equipment: **{top.get('equipment_id')} - {top.get('equipment_name')}** "
+                f"with **{top.get('estimated_downtime_hours')} estimated hours**."
+            )
+            display_lines.append("")
+            display_lines.append("Top downtime equipment:")
+            for index, item in enumerate(downtime_ranking[:5], start=1):
+                display_lines.append(
+                    f"{index}. **{item.get('equipment_id')}** - {item.get('estimated_downtime_hours')} hours "
+                    f"({item.get('area')}, {item.get('total_work_orders')} work orders)"
+                )
+        else:
+            display_lines.append("No downtime data available.")
+
         return {
             "status": "success",
             "question": request.message,
+            "display_answer": "\n".join(display_lines),
             "answer": {
                 "summary": "Downtime ranking generated successfully.",
-                "downtime_ranking": downtime.get("downtime_ranking", [])
+                "downtime_ranking": downtime_ranking
             }
         }
 
@@ -739,9 +758,39 @@ def chat(request: UserRequest):
                 "recommended_action": "Inspect equipment condition, review open work orders, and validate spare parts before starting work."
             })
 
+        display_lines = [
+            "### Daily Maintenance Recommendation",
+            "",
+            "Focus today's maintenance work on the highest-risk equipment first.",
+            ""
+        ]
+        for index, item in enumerate(recommendations, start=1):
+            display_lines.append(f"**Priority {index}: {item.get('equipment_id')}**")
+            display_lines.append(f"- Priority: {item.get('priority')}")
+            display_lines.append(f"- Reason: {item.get('reason')}")
+            display_lines.append(f"- Action: {item.get('recommended_action')}")
+            display_lines.append("")
+
+        if critical_items:
+            display_lines.append("Critical open work orders:")
+            for item in critical_items[:3]:
+                display_lines.append(
+                    f"- **{item.get('equipment_id')}**: {item.get('description')} "
+                    f"({item.get('status_work_order')})"
+                )
+            display_lines.append("")
+
+        if downtime_items:
+            display_lines.append("Highest downtime equipment:")
+            for index, item in enumerate(downtime_items, start=1):
+                display_lines.append(
+                    f"{index}. **{item.get('equipment_id')}** - {item.get('estimated_downtime_hours')} hours"
+                )
+
         return {
             "status": "success",
             "question": request.message,
+            "display_answer": "\n".join(display_lines),
             "answer": {
                 "summary": "Daily maintenance recommendations generated from risk ranking, critical work orders, and downtime data.",
                 "recommended_focus": recommendations,
@@ -763,9 +812,23 @@ def chat(request: UserRequest):
         failure_data = failures.get("data", [])
         most_common = failure_data[0] if failure_data else None
 
+        display_lines = ["### Most Common Failure", ""]
+        if most_common:
+            display_lines.append(
+                f"The most common failure is **{most_common.get('failure_type')}** "
+                f"with **{most_common.get('count')} occurrences**."
+            )
+            display_lines.append("")
+            display_lines.append("Top failure types:")
+            for index, item in enumerate(failure_data[:10], start=1):
+                display_lines.append(f"{index}. **{item.get('failure_type')}** - {item.get('count')} occurrences")
+        else:
+            display_lines.append("No failure data available.")
+
         return {
             "status": "success",
             "question": request.message,
+            "display_answer": "\n".join(display_lines),
             "answer": {
                 "summary": "Most common failure types generated successfully.",
                 "most_common_failure": most_common,
@@ -855,9 +918,28 @@ def chat(request: UserRequest):
         if low_stock_parts > 0:
             actions.append("Reorder low-stock spare parts before closing the maintenance plan")
 
+        display_lines = [
+            f"### Recommended Maintenance for {equipment_id}",
+            "",
+            f"Priority: **{priority}**",
+            f"Risk: **{risk_level}** with score **{risk_score}**",
+            f"Latest failure pattern: **{latest_failure or 'N/A'}**",
+            "",
+            "Recommended actions:"
+        ]
+        for index, action in enumerate(actions, start=1):
+            display_lines.append(f"{index}. {action}")
+        display_lines.extend([
+            "",
+            f"Open work orders: **{open_order_count}**",
+            f"Spare parts available: **{spare_parts.get('available')}**",
+            f"Low-stock parts: **{low_stock_parts}**"
+        ])
+
         return {
             "status": "success",
             "question": request.message,
+            "display_answer": "\n".join(display_lines),
             "answer": {
                 "summary": f"Recommended maintenance generated for {equipment_id}.",
                 "equipment_id": equipment_id,

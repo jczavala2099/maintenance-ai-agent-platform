@@ -1,7 +1,13 @@
 import streamlit as st
 import requests
+import os
 
-ORCHESTRATOR_URL = "http://localhost:8000/chat"
+ORCHESTRATOR_BASE_URL = os.getenv(
+    "ORCHESTRATOR_URL",
+    "http://localhost:8000"
+)
+
+ORCHESTRATOR_URL = f"{ORCHESTRATOR_BASE_URL}/chat"
 
 st.set_page_config(
     page_title="Maintenance AI Assistant",
@@ -17,7 +23,7 @@ st.write(
 
 question = st.text_input(
     "Question",
-    value="Generate a weekly maintenance summary."
+    value="What machine has the lowest OEE?"
 )
 
 user_id = st.text_input(
@@ -45,6 +51,10 @@ if st.button("Ask"):
 
             st.success(answer.get("summary", "Request completed."))
 
+            display_answer = data.get("display_answer")
+            if display_answer:
+                st.markdown(display_answer)
+
             # Weekly maintenance summary
             if "total_work_orders" in answer and "critical_open_work_orders" in answer:
                 st.subheader("Weekly Maintenance Summary")
@@ -71,7 +81,7 @@ if st.button("Ask"):
                     answer.get("affected_equipment", "N/A")
                 )
 
-            # OEE response
+            # Single-equipment OEE response
             elif "oee" in answer:
                 st.subheader("OEE Analysis")
 
@@ -114,6 +124,52 @@ if st.button("Ask"):
                     answer.get("runtime_minutes", "N/A")
                 )
 
+            # Lowest OEE equipment ranking
+            elif "lowest_oee_equipment" in answer:
+                st.subheader("Lowest OEE Equipment")
+
+                lowest_oee = answer.get("lowest_oee_equipment", [])
+
+                if lowest_oee:
+                    st.dataframe(
+                        lowest_oee,
+                        use_container_width=True
+                    )
+
+                    worst_equipment = lowest_oee[0]
+
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    col1.metric(
+                        "Lowest OEE Equipment",
+                        worst_equipment.get("equipment_id", "N/A")
+                    )
+
+                    col2.metric(
+                        "OEE",
+                        f"{worst_equipment.get('oee', 'N/A')}%"
+                    )
+
+                    col3.metric(
+                        "Availability",
+                        f"{worst_equipment.get('availability', 'N/A')}%"
+                    )
+
+                    col4.metric(
+                        "Downtime Minutes",
+                        worst_equipment.get("downtime_minutes", "N/A")
+                    )
+
+                    if "oee_ranking" in answer:
+                        st.subheader("Full OEE Ranking")
+                        st.dataframe(
+                            answer.get("oee_ranking", []),
+                            use_container_width=True
+                        )
+
+                else:
+                    st.info("No OEE ranking data available.")
+
             # Downtime ranking
             elif "downtime_ranking" in answer:
                 st.subheader("Downtime Ranking")
@@ -147,6 +203,68 @@ if st.button("Ask"):
                 else:
                     st.info("No downtime data available.")
 
+            # Daily maintenance recommendations
+            elif "recommended_focus" in answer:
+                st.subheader("Recommended Focus")
+
+                recommended_focus = answer.get("recommended_focus", [])
+                if recommended_focus:
+                    st.dataframe(
+                        recommended_focus,
+                        use_container_width=True
+                    )
+
+                critical_orders = answer.get("critical_open_work_orders", [])
+                if critical_orders:
+                    st.subheader("Critical Open Work Orders")
+                    st.dataframe(
+                        critical_orders,
+                        use_container_width=True
+                    )
+
+                downtime_equipment = answer.get("highest_downtime_equipment", [])
+                if downtime_equipment:
+                    st.subheader("Highest Downtime Equipment")
+                    st.dataframe(
+                        downtime_equipment,
+                        use_container_width=True
+                    )
+
+                with st.expander("Technical Details"):
+                    st.json(answer)
+
+            # Equipment-specific recommended maintenance
+            elif "recommended_actions" in answer:
+                st.subheader("Recommended Actions")
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Priority", answer.get("priority", "N/A"))
+                col2.metric("Risk Level", answer.get("risk_level", "N/A"))
+                col3.metric("Risk Score", answer.get("risk_score", "N/A"))
+
+                for index, action in enumerate(answer.get("recommended_actions", []), start=1):
+                    st.write(f"{index}. {action}")
+
+                with st.expander("Technical Details"):
+                    st.json(answer)
+
+            # Common failure analysis
+            elif "top_failure_types" in answer:
+                st.subheader("Top Failure Types")
+
+                most_common = answer.get("most_common_failure")
+                if most_common:
+                    col1, col2 = st.columns(2)
+                    col1.metric("Most Common Failure", most_common.get("failure_type", "N/A"))
+                    col2.metric("Occurrences", most_common.get("count", "N/A"))
+
+                st.dataframe(
+                    answer.get("top_failure_types", []),
+                    use_container_width=True
+                )
+
+                with st.expander("Technical Details"):
+                    st.json(answer)
             # All work orders for one equipment
             elif "all_work_orders" in answer:
                 st.subheader("All Work Orders")
@@ -327,6 +445,8 @@ if st.button("Ask"):
                         "maintenance_history",
                         "all_work_orders",
                         "downtime_ranking",
+                        "lowest_oee_equipment",
+                        "oee_ranking",
                         "oee",
                         "availability",
                         "performance",
