@@ -9,6 +9,7 @@ app = FastAPI(title="Maintenance Agent Orchestrator")
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 TOOLS_API_URL = os.getenv("TOOLS_API_URL", "http://localhost:8001")
 LOGGING_API_URL = os.getenv("LOGGING_API_URL", "http://localhost:8002")
+AZURE_FUNCTIONS_URL = os.getenv("AZURE_FUNCTIONS_URL", "http://localhost:7071/api")
 
 
 class UserRequest(BaseModel):
@@ -54,14 +55,28 @@ def is_open_work_orders_question(message: str):
 def is_all_work_orders_question(message: str):
     text = message.lower()
     keywords = [
-        "all work orders",
-        "show all work orders",
-        "list all work orders",
-        "work order history",
-        "todas las ordenes",
-        "todas las órdenes",
-        "mostrar todas las ordenes",
-        "mostrar todas las órdenes"
+        "all work orders", "show all work orders", "list all work orders",
+        "work order history", "todas las ordenes", "todas las órdenes",
+        "mostrar todas las ordenes", "mostrar todas las órdenes"
+    ]
+    return any(keyword in text for keyword in keywords)
+
+
+def is_create_work_order_question(message: str):
+    text = message.lower()
+    keywords = [
+        "create work order",
+        "create a work order",
+        "generate work order",
+        "open work order",
+        "raise work order",
+        "create maintenance ticket",
+        "create ticket",
+        "crear orden",
+        "crear orden de trabajo",
+        "generar orden",
+        "levantar orden",
+        "crear ticket"
     ]
     return any(keyword in text for keyword in keywords)
 
@@ -96,11 +111,25 @@ def is_highest_risk_question(message: str):
         "which equipment should i prioritize today",
         "what should i prioritize today",
         "maintenance priorities", "daily priorities", "prioritize today",
+        "which machines need attention today",
+        "what machines need attention today",
+        "machines need attention today",
+        "equipment need attention today",
+        "need attention today",
+        "need attention",
+        "machines to check today",
+        "equipment to check today",
+        "machines needing attention",
+        "equipment needing attention",
         "riesgo mas alto", "riesgo más alto",
         "maquina con mayor riesgo", "máquina con mayor riesgo",
         "equipo con mayor riesgo", "priorizar hoy",
         "prioridades de mantenimiento",
-        "que equipo debo priorizar", "qué equipo debo priorizar"
+        "que equipo debo priorizar", "qué equipo debo priorizar",
+        "maquinas que necesitan atencion",
+        "máquinas que necesitan atención",
+        "equipos que necesitan atencion",
+        "equipos que necesitan atención"
     ]
     return any(keyword in text for keyword in keywords)
 
@@ -131,16 +160,11 @@ def is_critical_work_orders_question(message: str):
 def is_downtime_question(message: str):
     text = message.lower()
     keywords = [
-        "downtime",
-        "most downtime",
-        "generating the most downtime",
+        "downtime", "most downtime", "generating the most downtime",
         "equipment is generating the most downtime",
         "machine is generating the most downtime",
-        "tiempo muerto",
-        "mayor downtime",
-        "mayor tiempo muerto",
-        "mas tiempo muerto",
-        "más tiempo muerto"
+        "tiempo muerto", "mayor downtime", "mayor tiempo muerto",
+        "mas tiempo muerto", "más tiempo muerto"
     ]
     return any(keyword in text for keyword in keywords)
 
@@ -148,13 +172,39 @@ def is_downtime_question(message: str):
 def is_oee_question(message: str):
     text = message.lower()
     keywords = [
-        "oee",
-        "overall equipment effectiveness",
-        "eficiencia global",
-        "efectividad global",
-        "availability",
-        "performance",
-        "quality"
+        "oee", "overall equipment effectiveness",
+        "eficiencia global", "efectividad global",
+        "availability", "performance", "quality"
+    ]
+    return any(keyword in text for keyword in keywords)
+
+
+def is_lowest_oee_question(message: str):
+    text = message.lower()
+    keywords = [
+        "lowest oee", "lowest oee machine", "machine with lowest oee",
+        "equipment with lowest oee", "worst oee",
+        "lowest equipment effectiveness",
+        "what is the machine with lowest oee",
+        "which machine has the lowest oee",
+        "which equipment has the lowest oee",
+        "menor oee", "peor oee", "equipo con menor oee",
+        "maquina con menor oee", "máquina con menor oee"
+    ]
+    return any(keyword in text for keyword in keywords)
+
+
+def is_equipment_info_question(message: str):
+    text = message.lower()
+    keywords = [
+        "status of", "what is the status",
+        "show information for", "show info for",
+        "equipment information", "equipment info",
+        "show equipment", "get equipment",
+        "equipment details", "get equipment details",
+        "tell me about", "details for",
+        "informacion del equipo", "información del equipo",
+        "estado de", "detalles del equipo"
     ]
     return any(keyword in text for keyword in keywords)
 
@@ -164,10 +214,8 @@ def is_weekly_summary_question(message: str):
     keywords = [
         "weekly maintenance summary",
         "generate a weekly maintenance summary",
-        "weekly summary",
-        "maintenance summary",
-        "resumen semanal",
-        "resumen de mantenimiento",
+        "weekly summary", "maintenance summary",
+        "resumen semanal", "resumen de mantenimiento",
         "resumen semanal de mantenimiento"
     ]
     return any(keyword in text for keyword in keywords)
@@ -227,16 +275,6 @@ def maintenance_case(request: UserRequest):
             "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
         }
 
-    send_log(
-        request_id,
-        "request_received",
-        {
-            "user_id": request.user_id,
-            "message": request.message,
-            "equipment_id": equipment_id
-        }
-    )
-
     equipment = requests.post(
         f"{TOOLS_API_URL}/get_equipment_info",
         json={"equipment_id": equipment_id},
@@ -256,7 +294,7 @@ def maintenance_case(request: UserRequest):
     ).json()
 
     work_order = requests.post(
-        f"{TOOLS_API_URL}/create_work_order",
+        f"{AZURE_FUNCTIONS_URL}/create_work_order",
         json={
             "request_id": request_id,
             "equipment_id": equipment_id,
@@ -265,31 +303,25 @@ def maintenance_case(request: UserRequest):
             "recommended_action": "Inspect bearings, shaft alignment and mounting base",
             "requested_by": request.user_id
         },
-        timeout=5
+        timeout=10
     ).json()
 
     notification = requests.post(
-        f"{TOOLS_API_URL}/send_notification",
-        timeout=5
+        f"{AZURE_FUNCTIONS_URL}/send_notification",
+        json={
+            "channel": "maintenance_supervisor",
+            "body": f"Maintenance work order created for {equipment_id}."
+        },
+        timeout=10
     ).json()
 
     final_response = (
-        "A high priority maintenance work order was created "
-        "and the supervisor was notified."
-    )
-
-    send_log(
-        request_id,
-        "final_response_generated",
-        {
-            "equipment_id": equipment_id,
-            "final_response": final_response,
-            "work_order_id": work_order.get("work_order_id")
-        }
+        "A high priority maintenance work order was created using an Azure Function "
+        "and the supervisor was notified using a serverless tool."
     )
 
     return {
-        "agent_flow": "User -> Orchestrator -> Tool(s) -> Logging -> Response",
+        "agent_flow": "User -> Orchestrator -> Azure Function Tool(s) -> Tools API -> PostgreSQL -> Response",
         "request_id": request_id,
         "user_id": request.user_id,
         "detected_equipment_id": equipment_id,
@@ -331,17 +363,6 @@ def critical_maintenance_workflow(request: UserRequest):
             step
         )
 
-    send_log(
-        request_id,
-        "workflow_started",
-        {
-            "user_id": request.user_id,
-            "message": request.message,
-            "equipment_id": equipment_id,
-            "workflow_name": "critical_maintenance_workflow"
-        }
-    )
-
     add_step(
         "validate_input",
         "success",
@@ -352,12 +373,12 @@ def critical_maintenance_workflow(request: UserRequest):
     )
 
     equipment = requests.post(
-        f"{TOOLS_API_URL}/get_equipment_info",
+        f"{AZURE_FUNCTIONS_URL}/get_equipment_info",
         json={"equipment_id": equipment_id},
-        timeout=5
+        timeout=10
     ).json()
 
-    add_step("get_equipment_info", "success", equipment)
+    add_step("azure_function_get_equipment_info", "success", equipment)
 
     history = requests.post(
         f"{TOOLS_API_URL}/get_maintenance_history",
@@ -390,7 +411,7 @@ def critical_maintenance_workflow(request: UserRequest):
 
     if decision["decision"] == "create_work_order":
         work_order = requests.post(
-            f"{TOOLS_API_URL}/create_work_order",
+            f"{AZURE_FUNCTIONS_URL}/create_work_order",
             json={
                 "request_id": request_id,
                 "equipment_id": equipment_id,
@@ -399,34 +420,37 @@ def critical_maintenance_workflow(request: UserRequest):
                 "recommended_action": "Inspect bearings, shaft alignment and mounting base.",
                 "requested_by": request.user_id
             },
-            timeout=5
+            timeout=10
         ).json()
 
-        add_step("create_work_order", "success", work_order)
+        add_step("azure_function_create_work_order", "success", work_order)
     else:
         work_order = None
 
     notification = requests.post(
-        f"{TOOLS_API_URL}/send_notification",
-        timeout=5
+        f"{AZURE_FUNCTIONS_URL}/send_notification",
+        json={
+            "channel": "maintenance_supervisor",
+            "body": f"Critical workflow executed for {equipment_id}."
+        },
+        timeout=10
     ).json()
 
-    add_step("send_notification", "success", notification)
+    add_step("azure_function_send_notification", "success", notification)
 
     final_response = {
-        "summary": "Critical maintenance workflow completed.",
+        "summary": "Critical maintenance workflow completed using Azure Functions serverless tools.",
         "equipment_id": equipment_id,
         "priority": "critical",
         "decision": decision["decision"],
         "work_order_id": work_order.get("work_order_id") if work_order else None,
-        "notification_status": notification.get("status")
+        "notification_status": notification.get("status"),
+        "serverless_tools_used": [
+            "get_equipment_info",
+            "create_work_order",
+            "send_notification"
+        ]
     }
-
-    send_log(
-        request_id,
-        "workflow_completed",
-        final_response
-    )
 
     return {
         "status": "success",
@@ -451,9 +475,9 @@ def ai_maintenance_advisor(request: UserRequest):
         }
 
     equipment = requests.post(
-        f"{TOOLS_API_URL}/get_equipment_info",
+        f"{AZURE_FUNCTIONS_URL}/get_equipment_info",
         json={"equipment_id": equipment_id},
-        timeout=5
+        timeout=10
     ).json()
 
     history = requests.post(
@@ -479,18 +503,6 @@ def ai_maintenance_advisor(request: UserRequest):
         json={"equipment_id": equipment_id},
         timeout=5
     ).json()
-
-    send_log(
-        request_id,
-        "ai_advisor_context_loaded",
-        {
-            "equipment_id": equipment_id,
-            "work_orders_count": work_orders.get("count"),
-            "risk_level": risk_prediction.get("risk_level"),
-            "risk_score": risk_prediction.get("risk_score"),
-            "health_score": risk_prediction.get("health_score")
-        }
-    )
 
     prompt = f"""
 You are an expert industrial maintenance advisor.
@@ -548,6 +560,7 @@ Respond in clear professional English.
         "advisor_type": "AI Maintenance Advisor",
         "equipment_id": equipment_id,
         "user_message": request.message,
+        "serverless_tool_used": "azure_function_get_equipment_info",
         "data_sources": {
             "equipment": equipment,
             "history": history,
@@ -561,22 +574,34 @@ Respond in clear professional English.
 
 @app.post("/chat")
 def chat(request: UserRequest):
-    request_id = "CHAT-2026-0001"
-
     if is_highest_risk_question(request.message):
         highest_risk = requests.get(
             f"{TOOLS_API_URL}/get_highest_risk_equipment",
             timeout=5
         ).json()
 
-        equipment_list = highest_risk.get("highest_risk_equipment", [])
-
         return {
             "status": "success",
             "question": request.message,
             "answer": {
                 "summary": "Highest risk equipment ranking generated successfully.",
-                "highest_risk_equipment": equipment_list
+                "highest_risk_equipment": highest_risk.get("highest_risk_equipment", [])
+            }
+        }
+
+    if is_lowest_oee_question(request.message):
+        oee_ranking = requests.get(
+            f"{TOOLS_API_URL}/get_oee_ranking",
+            timeout=5
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": "Lowest OEE equipment ranking generated successfully.",
+                "lowest_oee_equipment": oee_ranking.get("lowest_oee_equipment", []),
+                "oee_ranking": oee_ranking.get("oee_ranking", [])
             }
         }
 
@@ -634,6 +659,50 @@ def chat(request: UserRequest):
         return {
             "status": "error",
             "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
+        }
+
+    if is_equipment_info_question(request.message):
+        equipment = requests.post(
+            f"{TOOLS_API_URL}/get_equipment_info",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": f"Equipment information retrieved for {equipment_id}.",
+                "equipment_id": equipment_id,
+                "equipment": equipment
+            }
+        }
+
+    if is_create_work_order_question(request.message):
+        payload = {
+            "request_id": "CHAT-AZFUNC-0001",
+            "equipment_id": equipment_id,
+            "priority": "high",
+            "description": request.message,
+            "recommended_action": "Review reported issue and perform maintenance inspection.",
+            "requested_by": request.user_id
+        }
+
+        work_order = requests.post(
+            f"{AZURE_FUNCTIONS_URL}/create_work_order",
+            json=payload,
+            timeout=10
+        ).json()
+
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": f"Serverless work order created for {equipment_id}.",
+                "serverless_tool": "azure_function_create_work_order",
+                "equipment_id": equipment_id,
+                "work_order": work_order
+            }
         }
 
     if is_all_work_orders_question(request.message):
@@ -766,15 +835,19 @@ def chat(request: UserRequest):
 
     return {
         "status": "not_supported_yet",
-        "message": "This chat endpoint currently supports open work orders, all work orders, risk score, spare parts, highest risk equipment, downtime ranking, OEE, weekly summary, maintenance history, and critical work orders questions.",
+        "message": "This chat endpoint currently supports equipment information, open work orders, all work orders, serverless work order creation, risk score, spare parts, highest risk equipment, lowest OEE equipment, downtime ranking, OEE, weekly summary, maintenance history, and critical work orders questions.",
         "examples": [
+            "What is the status of PRESS-01?",
+            "Show information for ROBOT-01",
             "Are there open work orders for ROBOT-01?",
             "Show all work orders for PRESS-01",
+            "Create a work order for PRESS-01 because it is overheating",
             "What is the risk score for PRESS-01?",
             "Are spare parts available for CNC-01?",
             "Which machine has the highest risk?",
             "What equipment should I prioritize today?",
             "Which equipment is generating the most downtime?",
+            "What machine has the lowest OEE?",
             "What is the OEE of PRESS-01?",
             "Generate a weekly maintenance summary.",
             "What maintenance history does ROBOT-01 have?",
