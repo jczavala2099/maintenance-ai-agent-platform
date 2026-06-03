@@ -160,7 +160,7 @@ def is_critical_work_orders_question(message: str):
 def is_downtime_question(message: str):
     text = message.lower()
     keywords = [
-        "downtime", "most downtime", "generating the most downtime",
+        "downtime", "down time", "most downtime", "most down time", "machine with most down time", "machine with the most down time", "equipment with most down time", "equipment with the most down time", "generating the most downtime",
         "equipment is generating the most downtime",
         "machine is generating the most downtime",
         "tiempo muerto", "mayor downtime", "mayor tiempo muerto",
