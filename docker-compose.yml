@@ -10,6 +10,12 @@ services:
       - POSTGRES_DB=maintenance_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maintenance_user -d maintenance_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:latest
@@ -18,7 +24,7 @@ services:
       - "10000:10000"
       - "10001:10001"
       - "10002:10002"
-    command: "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0"
+    command: "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --skipApiVersionCheck"
     volumes:
       - azurite_data:/data
 
@@ -30,7 +36,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://maintenance_user:maintenance_pass@postgres-db:5432/maintenance_db
     depends_on:
-      - postgres-db
+      postgres-db:
+        condition: service_healthy
+    restart: unless-stopped
 
   azure-functions-tools:
     build:
@@ -40,7 +48,7 @@ services:
       - "7071:80"
     environment:
       - TOOLS_API_URL=http://tools-api:8001
-      - AzureWebJobsStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFeASbF3lWQWz6fJfM0iJ9nN+4h1T4I6w==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
+      - AzureWebJobsStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
     depends_on:
       - tools-api
       - azurite
@@ -56,7 +64,7 @@ services:
       - AZURE_FUNCTIONS_URL=http://azure-functions-tools/api
       - WEBSITE_HOSTNAME=localhost:7072
       - AzureWebJobsSecretStorageType=files
-      - AzureWebJobsStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFeASbF3lWQWz6fJfM0iJ9nN+4h1T4I6w==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
+      - AzureWebJobsStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
     depends_on:
       - tools-api
       - azure-functions-tools
@@ -82,6 +90,7 @@ services:
       - tools-api
       - logging-service
       - azure-functions-tools
+    restart: unless-stopped
 
   streamlit-ui:
     build:

@@ -21,3 +21,10 @@ local.settings.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Local Power BI exports
+equipment.csv
+maintenance_history.csv
+spare_parts.csv
+work_orders.csv
+
