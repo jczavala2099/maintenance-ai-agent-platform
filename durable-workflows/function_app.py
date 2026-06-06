@@ -106,11 +106,11 @@ def maintenance_workflow_orchestrator(
                 "priority": payload.get("priority", "critical"),
                 "description": payload.get(
                     "description",
-                    "Durable workflow maintenance request"
+                    "Solicitud de mantenimiento desde workflow durable"
                 ),
                 "recommended_action": payload.get(
                     "recommended_action",
-                    "Inspect equipment and perform corrective action."
+                    "Inspeccionar equipo y realizar acción correctiva."
                 ),
                 "requested_by": payload.get(
                     "requested_by",
@@ -126,7 +126,7 @@ def maintenance_workflow_orchestrator(
                 "channel",
                 "maintenance_supervisor"
             ),
-            "body": f"Durable workflow completed for {equipment_id}."
+            "body": f"Workflow durable completado para {equipment_id}."
         }
     )
 
@@ -155,7 +155,7 @@ def validate_workflow_input(payload: dict):
     if not equipment_id:
         return {
             "status": "error",
-            "message": "equipment_id is required"
+            "message": "equipment_id es requerido"
         }
 
     return {
@@ -202,20 +202,20 @@ def make_workflow_decision(payload: dict):
         return {
             "status": "success",
             "decision": "create_work_order",
-            "reason": "Equipment is high criticality and spare parts are available."
+            "reason": "El equipo es de alta criticidad y hay refacciones disponibles."
         }
 
     if criticality == "high":
         return {
             "status": "success",
             "decision": "create_work_order",
-            "reason": "Equipment is high criticality. Work order required even if spare parts availability is uncertain."
+            "reason": "El equipo es de alta criticidad. Se requiere orden de trabajo aunque la disponibilidad de refacciones sea incierta."
         }
 
     return {
         "status": "success",
         "decision": "notify_only",
-        "reason": "Equipment is not high criticality."
+        "reason": "El equipo no es de alta criticidad."
     }
 
 

@@ -9,29 +9,34 @@ ORCHESTRATOR_BASE_URL = os.getenv(
 
 ORCHESTRATOR_URL = f"{ORCHESTRATOR_BASE_URL}/chat"
 
+TOOLS_API_BASE_URL = os.getenv(
+    "TOOLS_API_URL",
+    "http://localhost:8001"
+)
+
 st.set_page_config(
-    page_title="Maintenance AI Assistant",
+    page_title="Asistente IA de Mantenimiento",
     page_icon="🛠️",
     layout="wide"
 )
 
-st.title("🛠️ Maintenance AI Assistant")
+st.title("🛠️ Asistente IA de Mantenimiento")
 st.write(
-    "Ask questions about work orders, risk score, spare parts, downtime, OEE, "
-    "maintenance history, critical work orders, or weekly summaries."
+    "Haz preguntas sobre órdenes de trabajo, riesgo, refacciones, tiempo muerto, OEE, "
+    "historial de mantenimiento, órdenes críticas o resúmenes semanales."
 )
 
 question = st.text_input(
-    "Question",
-    value="What machine has the lowest OEE?"
+    "Pregunta",
+    value="¿Qué máquina tiene el menor OEE?"
 )
 
 user_id = st.text_input(
-    "User ID",
+    "ID de Usuario",
     value="supervisor_01"
 )
 
-if st.button("Ask"):
+if st.button("Preguntar"):
     payload = {
         "user_id": user_id,
         "message": question
@@ -49,7 +54,7 @@ if st.button("Ask"):
         if data.get("status") == "success":
             answer = data.get("answer", {})
 
-            st.success(answer.get("summary", "Request completed."))
+            st.success(answer.get("summary", "Solicitud completada."))
 
             display_answer = data.get("display_answer")
             if display_answer:
@@ -57,33 +62,33 @@ if st.button("Ask"):
 
             # Weekly maintenance summary
             if "total_work_orders" in answer and "critical_open_work_orders" in answer:
-                st.subheader("Weekly Maintenance Summary")
+                st.subheader("Resumen Semanal de Mantenimiento")
 
                 col1, col2, col3, col4 = st.columns(4)
 
                 col1.metric(
-                    "Total Work Orders",
+                    "Total de Órdenes",
                     answer.get("total_work_orders", "N/A")
                 )
 
                 col2.metric(
-                    "Open Work Orders",
+                    "Órdenes Abiertas",
                     answer.get("open_work_orders", "N/A")
                 )
 
                 col3.metric(
-                    "Critical Open Orders",
+                    "Órdenes Críticas Abiertas",
                     answer.get("critical_open_work_orders", "N/A")
                 )
 
                 col4.metric(
-                    "Affected Equipment",
+                    "Equipos Afectados",
                     answer.get("affected_equipment", "N/A")
                 )
 
             # Single-equipment OEE response
             elif "oee" in answer:
-                st.subheader("OEE Analysis")
+                st.subheader("Análisis OEE")
 
                 col1, col2, col3, col4 = st.columns(4)
 
@@ -93,40 +98,40 @@ if st.button("Ask"):
                 )
 
                 col2.metric(
-                    "Availability",
+                    "Disponibilidad",
                     f"{answer.get('availability', 'N/A')}%"
                 )
 
                 col3.metric(
-                    "Performance",
+                    "Rendimiento",
                     f"{answer.get('performance', 'N/A')}%"
                 )
 
                 col4.metric(
-                    "Quality",
+                    "Calidad",
                     f"{answer.get('quality', 'N/A')}%"
                 )
 
                 col5, col6, col7 = st.columns(3)
 
                 col5.metric(
-                    "Planned Minutes",
+                    "Minutos Planeados",
                     answer.get("planned_minutes", "N/A")
                 )
 
                 col6.metric(
-                    "Downtime Minutes",
+                    "Minutos de Tiempo Muerto",
                     answer.get("downtime_minutes", "N/A")
                 )
 
                 col7.metric(
-                    "Runtime Minutes",
+                    "Minutos Operando",
                     answer.get("runtime_minutes", "N/A")
                 )
 
             # Lowest OEE equipment ranking
             elif "lowest_oee_equipment" in answer:
-                st.subheader("Lowest OEE Equipment")
+                st.subheader("Equipos con Menor OEE")
 
                 lowest_oee = answer.get("lowest_oee_equipment", [])
 
@@ -141,7 +146,7 @@ if st.button("Ask"):
                     col1, col2, col3, col4 = st.columns(4)
 
                     col1.metric(
-                        "Lowest OEE Equipment",
+                        "Equipos con Menor OEE",
                         worst_equipment.get("equipment_id", "N/A")
                     )
 
@@ -151,28 +156,28 @@ if st.button("Ask"):
                     )
 
                     col3.metric(
-                        "Availability",
+                        "Disponibilidad",
                         f"{worst_equipment.get('availability', 'N/A')}%"
                     )
 
                     col4.metric(
-                        "Downtime Minutes",
+                        "Minutos de Tiempo Muerto",
                         worst_equipment.get("downtime_minutes", "N/A")
                     )
 
                     if "oee_ranking" in answer:
-                        st.subheader("Full OEE Ranking")
+                        st.subheader("Ranking Completo De OEE")
                         st.dataframe(
                             answer.get("oee_ranking", []),
                             use_container_width=True
                         )
 
                 else:
-                    st.info("No OEE ranking data available.")
+                    st.info("No hay datos disponibles de ranking OEE.")
 
             # Downtime ranking
             elif "downtime_ranking" in answer:
-                st.subheader("Downtime Ranking")
+                st.subheader("Ranking de Tiempo Muerto")
 
                 downtime_ranking = answer.get("downtime_ranking", [])
 
@@ -187,62 +192,62 @@ if st.button("Ask"):
                     col1, col2, col3 = st.columns(3)
 
                     col1.metric(
-                        "Highest Downtime Equipment",
+                        "Equipo con Mayor Tiempo Muerto",
                         top.get("equipment_id", "N/A")
                     )
 
                     col2.metric(
-                        "Estimated Downtime Hours",
+                        "Horas Estimadas de Tiempo Muerto",
                         top.get("estimated_downtime_hours", "N/A")
                     )
 
                     col3.metric(
-                        "Total Work Orders",
+                        "Total de Órdenes",
                         top.get("total_work_orders", "N/A")
                     )
                 else:
-                    st.info("No downtime data available.")
+                    st.info("No hay datos de tiempo muerto disponibles.")
 
             # Failure pattern analysis
             elif "failure_pattern_analysis" in answer:
-                st.subheader("Failure Pattern Analysis")
+                st.subheader("Análisis de Patrón de Falla")
 
                 pattern = answer.get("failure_pattern_analysis", {})
 
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Failure Type", pattern.get("failure_type", "N/A"))
-                col2.metric("Occurrences", pattern.get("occurrences", "N/A"))
-                col3.metric("Recurrence", pattern.get("recurrence_level", "N/A"))
-                col4.metric("Confidence", pattern.get("confidence", "N/A"))
+                col1.metric("Tipo de Falla", pattern.get("failure_type", "N/A"))
+                col2.metric("Ocurrencias", pattern.get("occurrences", "N/A"))
+                col3.metric("Recurrencia", pattern.get("recurrence_level", "N/A"))
+                col4.metric("Confianza", pattern.get("confidence", "N/A"))
 
-                st.write(pattern.get("recommendation", "No recommendation available."))
+                st.write(pattern.get("recommendation", "No hay recomendación disponible."))
 
                 if pattern.get("failure_distribution"):
-                    st.subheader("Failure Distribution")
+                    st.subheader("Distribución de Fallas")
                     st.dataframe(
                         pattern.get("failure_distribution", []),
                         use_container_width=True
                     )
 
                 if pattern.get("action_distribution"):
-                    st.subheader("Corrective Actions Used")
+                    st.subheader("Acciones Correctivas Usadas")
                     st.dataframe(
                         pattern.get("action_distribution", []),
                         use_container_width=True
                     )
 
                 if pattern.get("recent_matching_orders"):
-                    st.subheader("Recent Matching Work Orders")
+                    st.subheader("Órdenes Recientes Coincidentes")
                     st.dataframe(
                         pattern.get("recent_matching_orders", []),
                         use_container_width=True
                     )
 
-                with st.expander("Technical Details"):
+                with st.expander("Detalles Técnicos"):
                     st.json(pattern)
             # Daily maintenance recommendations
             elif "recommended_focus" in answer:
-                st.subheader("Recommended Focus")
+                st.subheader("Foco Recomendado")
 
                 recommended_focus = answer.get("recommended_focus", [])
                 if recommended_focus:
@@ -253,7 +258,7 @@ if st.button("Ask"):
 
                 critical_orders = answer.get("critical_open_work_orders", [])
                 if critical_orders:
-                    st.subheader("Critical Open Work Orders")
+                    st.subheader("Órdenes Críticas Abiertas")
                     st.dataframe(
                         critical_orders,
                         use_container_width=True
@@ -261,50 +266,50 @@ if st.button("Ask"):
 
                 downtime_equipment = answer.get("highest_downtime_equipment", [])
                 if downtime_equipment:
-                    st.subheader("Highest Downtime Equipment")
+                    st.subheader("Equipo con Mayor Tiempo Muerto")
                     st.dataframe(
                         downtime_equipment,
                         use_container_width=True
                     )
 
-                with st.expander("Technical Details"):
+                with st.expander("Detalles Técnicos"):
                     st.json(answer)
 
             # Equipment-specific recommended maintenance
             elif "recommended_actions" in answer:
-                st.subheader("Recommended Actions")
+                st.subheader("Acciones Recomendadas")
 
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Priority", answer.get("priority", "N/A"))
-                col2.metric("Risk Level", answer.get("risk_level", "N/A"))
-                col3.metric("Risk Score", answer.get("risk_score", "N/A"))
+                col1.metric("Prioridad", answer.get("priority", "N/A"))
+                col2.metric("Nivel de Riesgo", answer.get("risk_level", "N/A"))
+                col3.metric("Score de Riesgo", answer.get("risk_score", "N/A"))
 
                 for index, action in enumerate(answer.get("recommended_actions", []), start=1):
                     st.write(f"{index}. {action}")
 
-                with st.expander("Technical Details"):
+                with st.expander("Detalles Técnicos"):
                     st.json(answer)
 
             # Common failure analysis
             elif "top_failure_types" in answer:
-                st.subheader("Top Failure Types")
+                st.subheader("Top Tipo de Fallas")
 
                 most_common = answer.get("most_common_failure")
                 if most_common:
                     col1, col2 = st.columns(2)
-                    col1.metric("Most Common Failure", most_common.get("failure_type", "N/A"))
-                    col2.metric("Occurrences", most_common.get("count", "N/A"))
+                    col1.metric("Falla Más Común", most_common.get("failure_type", "N/A"))
+                    col2.metric("Ocurrencias", most_common.get("count", "N/A"))
 
                 st.dataframe(
                     answer.get("top_failure_types", []),
                     use_container_width=True
                 )
 
-                with st.expander("Technical Details"):
+                with st.expander("Detalles Técnicos"):
                     st.json(answer)
             # All work orders for one equipment
             elif "all_work_orders" in answer:
-                st.subheader("All Work Orders")
+                st.subheader("Todas las Órdenes")
 
                 all_orders = answer.get("all_work_orders", [])
 
@@ -317,7 +322,7 @@ if st.button("Ask"):
                     col1, col2 = st.columns(2)
 
                     col1.metric(
-                        "Total Work Orders",
+                        "Total de Órdenes",
                         len(all_orders)
                     )
 
@@ -327,15 +332,15 @@ if st.button("Ask"):
                     ])
 
                     col2.metric(
-                        "Critical Work Orders",
+                        "Órdenes Críticas",
                         critical_count
                     )
                 else:
-                    st.info("No work orders found.")
+                    st.info("No se encontraron órdenes de trabajo.")
 
             # Highest risk equipment ranking
             elif "highest_risk_equipment" in answer:
-                st.subheader("Highest Risk Equipment")
+                st.subheader("Equipos con Mayor Riesgo")
 
                 highest_risk = answer.get("highest_risk_equipment", [])
 
@@ -350,33 +355,33 @@ if st.button("Ask"):
                     col1, col2, col3, col4 = st.columns(4)
 
                     col1.metric(
-                        "Top Priority Equipment",
+                        "Equipo de Mayor Prioridad",
                         top_equipment.get("equipment_id", "N/A")
                     )
 
                     col2.metric(
-                        "Risk Score",
+                        "Score de Riesgo",
                         top_equipment.get("risk_score", "N/A")
                     )
 
                     col3.metric(
-                        "Health Score",
+                        "Score de Salud",
                         top_equipment.get("health_score", "N/A")
                     )
 
                     col4.metric(
-                        "Risk Level",
+                        "Nivel de Riesgo",
                         top_equipment.get("risk_level", "N/A")
                     )
 
                 else:
-                    st.info("No high-risk equipment found.")
+                    st.info("No se encontraron equipos de alto riesgo.")
 
             # Critical work orders
             elif "critical_work_orders" in answer:
                 critical_orders = answer.get("critical_work_orders", [])
 
-                st.subheader("Critical Work Orders")
+                st.subheader("Órdenes Críticas")
 
                 if critical_orders:
                     st.dataframe(
@@ -387,7 +392,7 @@ if st.button("Ask"):
                     col1, col2 = st.columns(2)
 
                     col1.metric(
-                        "Critical Open Work Orders",
+                        "Órdenes Críticas Abiertas",
                         len(critical_orders)
                     )
 
@@ -398,16 +403,16 @@ if st.button("Ask"):
                     }
 
                     col2.metric(
-                        "Affected Equipment",
+                        "Equipos Afectados",
                         len(equipment_ids)
                     )
 
                 else:
-                    st.info("No critical work orders found.")
+                    st.info("No se encontraron órdenes críticas.")
 
-            # Maintenance history
+            # Historial de mantenimiento
             elif "maintenance_history" in answer:
-                st.subheader("Maintenance History")
+                st.subheader("Historial de Mantenimiento")
 
                 history = answer.get("maintenance_history", {})
 
@@ -415,17 +420,17 @@ if st.button("Ask"):
                     col1, col2, col3 = st.columns(3)
 
                     col1.metric(
-                        "Last Failure",
+                        "Última Falla",
                         history.get("last_failure", "N/A")
                     )
 
                     col2.metric(
-                        "Last Action",
+                        "Última Acción",
                         history.get("last_action", "N/A")
                     )
 
                     col3.metric(
-                        "Days Since Last Event",
+                        "Días Desde Último Evento",
                         history.get("days_since_last_event", "N/A")
                     )
 
@@ -441,30 +446,30 @@ if st.button("Ask"):
                 col1, col2, col3 = st.columns(3)
 
                 col1.metric(
-                    "Risk Level",
+                    "Nivel de Riesgo",
                     answer.get("risk_level", "N/A")
                 )
 
                 col2.metric(
-                    "Risk Score",
+                    "Score de Riesgo",
                     answer.get("risk_score", "N/A")
                 )
 
                 col3.metric(
-                    "Health Score",
+                    "Score de Salud",
                     answer.get("health_score", "N/A")
                 )
 
                 if "open_work_orders" in answer:
                     if isinstance(answer["open_work_orders"], list):
-                        st.subheader("Open Work Orders")
+                        st.subheader("Órdenes Abiertas")
                         st.dataframe(
                             answer["open_work_orders"],
                             use_container_width=True
                         )
                     else:
                         st.metric(
-                            "Open Work Orders",
+                            "Órdenes Abiertas",
                             answer["open_work_orders"]
                         )
 
@@ -498,21 +503,148 @@ if st.button("Ask"):
                 }
 
                 if other_fields:
-                    st.subheader("Additional Details")
+                    st.subheader("Detalles Adicionales")
                     st.json(other_fields)
 
         elif data.get("status") == "not_supported_yet":
-            st.warning(data.get("message", "Request not supported yet."))
+            st.warning(data.get("message", "Solicitud no soportada todavía."))
 
             examples = data.get("examples", [])
             if examples:
-                st.subheader("Supported Example Questions")
+                st.subheader("Supported Example Preguntas")
                 for example in examples:
                     st.write(f"- {example}")
 
         else:
-            st.error(data.get("message", "Request failed."))
+            st.error(data.get("message", "La solicitud falló."))
             st.json(data)
 
     except Exception as e:
-        st.error(f"Error connecting to Orchestrator: {e}")
+        st.error(f"Error conectando con el orquestador: {e}")
+st.divider()
+st.header("Reporte De Mantenimiento Del Técnico")
+st.write(
+    "Usa este formulario para registrar nueva información de mantenimiento en la base de datos "
+    "a través de la API de herramientas."
+)
+
+with st.form("technician_report_form"):
+    col1, col2, col3 = st.columns(3)
+
+    report_equipment_id = col1.text_input(
+        "ID de Equipo",
+        value="PRESS-01"
+    )
+
+    reported_by = col2.text_input(
+        "Reportado Por",
+        value=user_id
+    )
+
+    report_priority = col3.selectbox(
+        "Prioridad",
+        ["low", "medium", "high", "critical"],
+        index=2
+    )
+
+    failure_type = st.text_input(
+        "Tipo de Falla",
+        value="Fuga de aceite"
+    )
+
+    action_taken = st.text_area(
+        "Acción Tomada",
+        value="Se reemplazó sello hidráulico y se limpió residuo de aceite"
+    )
+
+    col4, col5, col6 = st.columns(3)
+
+    equipment_status = col4.selectbox(
+        "Estado Del Equipo",
+        ["running", "maintenance", "down", "standby"],
+        index=0
+    )
+
+    work_order_status = col5.selectbox(
+        "Estado De Orden",
+        ["created", "in_progress", "completed", "closed"],
+        index=2
+    )
+
+    recurrence_risk = col6.selectbox(
+        "Riesgo De Recurrencia",
+        ["low", "medium", "high"],
+        index=1
+    )
+
+    col7, col8 = st.columns(2)
+
+    spare_part_used = col7.text_input(
+        "Refacción Usada",
+        value="Hydraulic seal kit (min stock 2)"
+    )
+
+    spare_part_quantity_used = col8.number_input(
+        "Cantidad De Refacción Usada",
+        min_value=0,
+        max_value=100,
+        value=0,
+        step=1
+    )
+
+    submitted_report = st.form_submit_button("Enviar Reporte De Mantenimiento")
+
+if submitted_report:
+    report_payload = {
+        "equipment_id": report_equipment_id,
+        "reported_by": reported_by,
+        "failure_type": failure_type,
+        "action_taken": action_taken,
+        "status_equipment": equipment_status,
+        "work_order_status": work_order_status,
+        "priority": report_priority,
+        "spare_part_used": spare_part_used or None,
+        "spare_part_quantity_used": spare_part_quantity_used,
+        "recurrence_risk": recurrence_risk
+    }
+
+    try:
+        report_response = requests.post(
+            f"{TOOLS_API_BASE_URL}/submit_technician_report",
+            json=report_payload,
+            timeout=10
+        )
+
+        report_data = report_response.json()
+
+        if report_data.get("status") == "success":
+            st.success(report_data.get("message", "Reporte enviado."))
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric(
+                "Orden De Trabajo",
+                report_data.get("work_order", {}).get("work_order_id", "N/A")
+            )
+            col2.metric(
+                "Estado De Orden",
+                report_data.get("work_order", {}).get("status_work_order", "N/A")
+            )
+            col3.metric(
+                "Estado Del Equipo",
+                report_data.get("equipment_status", {}).get("current_status", "N/A")
+            )
+
+            if report_data.get("inventory_update"):
+                st.subheader("Actualización De Inventario")
+                st.json(report_data.get("inventory_update"))
+
+            with st.expander("Detalles Del Reporte Guardado"):
+                st.json(report_data)
+        else:
+            st.error(report_data.get("message", "Falló el envío del reporte."))
+            st.json(report_data)
+
+    except Exception as e:
+        st.error(f"Error enviando reporte de mantenimiento: {e}")
+
+

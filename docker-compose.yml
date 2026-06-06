@@ -100,10 +100,12 @@ services:
       - "8501:8501"
     environment:
       - ORCHESTRATOR_URL=http://orchestrator:8000
+      - TOOLS_API_URL=http://tools-api:8001
     depends_on:
       - orchestrator
 
 volumes:
   postgres_data:
   azurite_data:
+
 

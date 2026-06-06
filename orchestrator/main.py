@@ -4,7 +4,7 @@ import requests
 import os
 import re
 
-app = FastAPI(title="Maintenance Agent Orchestrator")
+app = FastAPI(title="Orquestador del Agente de Mantenimiento")
 
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 TOOLS_API_URL = os.getenv("TOOLS_API_URL", "http://localhost:8001")
@@ -42,6 +42,75 @@ def detect_equipment_id(message: str):
     return None
 
 
+def translate_label(value: str | None):
+    labels = {
+        "critical": "crítico",
+        "high": "alto",
+        "medium": "medio",
+        "low": "bajo",
+        "created": "creada",
+        "in_progress": "en progreso",
+        "closed": "cerrada",
+        "running": "operando",
+        "maintenance": "mantenimiento",
+        "down": "detenida",
+        "standby": "en espera",
+    }
+    return labels.get(value, value)
+
+
+def translate_maintenance_text(value: str | None):
+    if value is None:
+        return None
+
+    translations = {
+        "Oil Leakage": "Fuga de aceite",
+        "Oil leakage": "Fuga de aceite",
+        "Hydraulic Pressure Drop": "Caída de presión hidráulica",
+        "Hydraulic pressure drop": "Caída de presión hidráulica",
+        "High Vibration": "Vibración alta",
+        "High vibration": "Vibración alta",
+        "Overheating": "Sobrecalentamiento",
+        "Sensor Failure": "Falla de sensor",
+        "Sensor failure": "Falla de sensor",
+        "Airflow Restriction": "Restricción de flujo de aire",
+        "Airflow restriction": "Restricción de flujo de aire",
+        "Temperature Deviation": "Desviación de temperatura",
+        "Temperature deviation": "Desviación de temperatura",
+        "Spindle Vibration": "Vibración de husillo",
+        "Belt Slipping": "Deslizamiento de banda",
+        "Belt slipping": "Deslizamiento de banda",
+        "Die Alignment Issue": "Problema de alineación de troquel",
+        "Die alignment issue": "Problema de alineación de troquel",
+        "Wire Feed Issue": "Problema de alimentación de alambre",
+        "Wire feed issue": "Problema de alimentación de alambre",
+        "Electrical Fault": "Falla eléctrica",
+        "Electrical fault": "Falla eléctrica",
+        "Low Flow Rate": "Bajo caudal",
+        "Low flow rate": "Bajo caudal",
+        "Jam Detected": "Atasco detectado",
+        "Jam detected": "Atasco detectado",
+        "Tool Changer Fault": "Falla de cambiador de herramienta",
+        "Tool changer fault": "Falla de cambiador de herramienta",
+        "Conveyor Tracking Issue": "Problema de alineación de transportador",
+        "Conveyor tracking issue": "Problema de alineación de transportador",
+        "Low Air Pressure": "Baja presión de aire",
+        "Low air pressure": "Baja presión de aire",
+        "Replaced hydraulic seal and cleaned oil residue": "Se reemplazó sello hidráulico y se limpió residuo de aceite",
+        "Demo workflow request": "Solicitud de workflow de demo",
+        "Inspect press and validate oil leakage history": "Inspeccionar prensa y validar historial de fuga de aceite",
+        "Inspect bearings, mounting base and alignment": "Inspeccionar rodamientos, base de montaje y alineación",
+        "Inspect hydraulic pump, seals and pressure regulator": "Inspeccionar bomba hidráulica, sellos y regulador de presión",
+        "detected on": "detectada en",
+    }
+
+    translated = value
+    for source, target in translations.items():
+        translated = translated.replace(source, target)
+        translated = translated.replace(source.lower(), target.lower())
+    return translated
+
+
 def is_open_work_orders_question(message: str):
     text = message.lower()
     keywords = [
@@ -57,7 +126,8 @@ def is_all_work_orders_question(message: str):
     keywords = [
         "all work orders", "show all work orders", "list all work orders",
         "work order history", "todas las ordenes", "todas las órdenes",
-        "mostrar todas las ordenes", "mostrar todas las órdenes"
+        "mostrar todas las ordenes", "mostrar todas las órdenes",
+        "muestra todas las ordenes", "muestra todas las órdenes"
     ]
     return any(keyword in text for keyword in keywords)
 
@@ -122,6 +192,9 @@ def is_highest_risk_question(message: str):
         "machines needing attention",
         "equipment needing attention",
         "riesgo mas alto", "riesgo más alto",
+        "mayor riesgo",
+        "que maquina tiene el mayor riesgo",
+        "qué máquina tiene el mayor riesgo",
         "maquina con mayor riesgo", "máquina con mayor riesgo",
         "equipo con mayor riesgo", "priorizar hoy",
         "prioridades de mantenimiento",
@@ -204,6 +277,7 @@ def is_equipment_info_question(message: str):
         "equipment details", "get equipment details",
         "tell me about", "details for",
         "informacion del equipo", "información del equipo",
+        "muestra informacion", "muestra información",
         "estado de", "detalles del equipo"
     ]
     return any(keyword in text for keyword in keywords)
@@ -241,13 +315,33 @@ def is_failure_pattern_question(message: str):
         "patrón de falla",
         "falla recurrente",
         "cuantas veces",
-        "cuántas veces"
+        "cuántas veces",
+        "ha ocurrido antes",
+        "ocurrido antes",
+        "se ha presentado",
+        "ha pasado antes"
     ]
     return any(keyword in text for keyword in keywords)
 
 
 def extract_failure_type(message: str):
     text = message.lower()
+    spanish_failures = {
+        "fuga de aceite": "Oil Leakage",
+        "caida de presion hidraulica": "Hydraulic Pressure Drop",
+        "caída de presión hidráulica": "Hydraulic Pressure Drop",
+        "vibracion alta": "High Vibration",
+        "vibración alta": "High Vibration",
+        "sobrecalentamiento": "Overheating",
+        "falla de sensor": "Sensor Failure",
+        "desviacion de temperatura": "Temperature Deviation",
+        "desviación de temperatura": "Temperature Deviation"
+    }
+
+    for failure, translated_failure in spanish_failures.items():
+        if failure in text:
+            return translated_failure
+
     known_failures = [
         "oil leakage", "hydraulic pressure drop", "high vibration",
         "overheating", "sensor failure", "airflow restriction",
@@ -325,7 +419,9 @@ def is_weekly_summary_question(message: str):
         "generate a weekly maintenance summary",
         "weekly summary", "maintenance summary",
         "resumen semanal", "resumen de mantenimiento",
-        "resumen semanal de mantenimiento"
+        "resumen semanal de mantenimiento",
+        "genera un resumen semanal",
+        "generar resumen semanal"
     ]
     return any(keyword in text for keyword in keywords)
 
@@ -341,11 +437,11 @@ def health_check():
 @app.post("/agent")
 def agent(request: UserRequest):
     prompt = f"""
-You are an industrial maintenance agent.
+Eres un agente de mantenimiento industrial.
 
-Analyze the maintenance incident and provide a short recommendation.
+Analiza el incidente de mantenimiento y entrega una recomendación breve en español.
 
-User message:
+Mensaje del usuario:
 {request.message}
 """
 
@@ -381,7 +477,7 @@ def maintenance_case(request: UserRequest):
         return {
             "status": "error",
             "request_id": request_id,
-            "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
+            "message": "No se detectó ID de equipo. Especifica un equipo, por ejemplo CNC-01, PRESS-01 o ROBOT-01."
         }
 
     equipment = requests.post(
@@ -419,7 +515,7 @@ def maintenance_case(request: UserRequest):
         f"{AZURE_FUNCTIONS_URL}/send_notification",
         json={
             "channel": "maintenance_supervisor",
-            "body": f"Maintenance work order created for {equipment_id}."
+            "body": f"Orden de mantenimiento creada para {equipment_id}."
         },
         timeout=10
     ).json()
@@ -453,7 +549,7 @@ def critical_maintenance_workflow(request: UserRequest):
         return {
             "status": "error",
             "workflow_id": request_id,
-            "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
+            "message": "No se detectó ID de equipo. Especifica un equipo, por ejemplo CNC-01, PRESS-01 o ROBOT-01."
         }
 
     workflow_steps = []
@@ -476,7 +572,7 @@ def critical_maintenance_workflow(request: UserRequest):
         "validate_input",
         "success",
         {
-            "message": "Input validated successfully.",
+            "message": "Entrada validada correctamente.",
             "equipment_id": equipment_id
         }
     )
@@ -508,12 +604,12 @@ def critical_maintenance_workflow(request: UserRequest):
     if spare_parts.get("available") is True:
         decision = {
             "decision": "create_work_order",
-            "reason": "Equipment is critical and spare parts are available."
+            "reason": "El equipo es crítico y hay refacciones disponibles."
         }
     else:
         decision = {
             "decision": "escalate_to_supervisor",
-            "reason": "Spare parts are not available or could not be confirmed."
+            "reason": "Las refacciones no están disponibles o no pudieron confirmarse."
         }
 
     add_step("decision", "success", decision)
@@ -540,7 +636,7 @@ def critical_maintenance_workflow(request: UserRequest):
         f"{AZURE_FUNCTIONS_URL}/send_notification",
         json={
             "channel": "maintenance_supervisor",
-            "body": f"Critical workflow executed for {equipment_id}."
+            "body": f"Workflow crítico ejecutado para {equipment_id}."
         },
         timeout=10
     ).json()
@@ -548,7 +644,7 @@ def critical_maintenance_workflow(request: UserRequest):
     add_step("azure_function_send_notification", "success", notification)
 
     final_response = {
-        "summary": "Critical maintenance workflow completed using Azure Functions serverless tools.",
+        "summary": "Workflow crítico de mantenimiento completado usando herramientas serverless de Azure Functions.",
         "equipment_id": equipment_id,
         "priority": "critical",
         "decision": decision["decision"],
@@ -580,7 +676,7 @@ def ai_maintenance_advisor(request: UserRequest):
         return {
             "status": "error",
             "request_id": request_id,
-            "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
+            "message": "No se detectó ID de equipo. Especifica un equipo, por ejemplo CNC-01, PRESS-01 o ROBOT-01."
         }
 
     equipment = requests.post(
@@ -614,38 +710,36 @@ def ai_maintenance_advisor(request: UserRequest):
     ).json()
 
     prompt = f"""
-You are an expert industrial maintenance advisor.
+Eres un asesor experto de mantenimiento industrial.
 
-Analyze this real maintenance data and provide:
-1. Failure risk level
-2. Most likely root cause
-3. Recommended maintenance action
-4. Spare parts recommendation
-5. Operational priority
-6. Short explanation for a maintenance supervisor
+Analiza estos datos reales de mantenimiento y responde en español con:
+1. Nivel de riesgo de falla
+2. Causa raíz más probable
+3. Acción de mantenimiento recomendada
+4. Recomendación de refacciones
+5. Prioridad operativa
+6. Explicación breve para un supervisor de mantenimiento
 
-User reported issue:
+Problema reportado por el usuario:
 {request.message}
 
-Detected equipment:
+Equipo detectado:
 {equipment_id}
 
-Equipment data:
+Datos del equipo:
 {equipment}
 
-Maintenance history:
+Historial de mantenimiento:
 {history}
 
-Spare parts:
+Refacciones:
 {spare_parts}
 
-Recent work orders:
+Órdenes recientes:
 {work_orders}
 
-Predictive maintenance risk score:
+Predicción de riesgo de mantenimiento:
 {risk_prediction}
-
-Respond in clear professional English.
 """
 
     llm_response = requests.post(
@@ -666,7 +760,7 @@ Respond in clear professional English.
 
     return {
         "status": "success",
-        "advisor_type": "AI Maintenance Advisor",
+        "advisor_type": "Asesor IA de Mantenimiento",
         "equipment_id": equipment_id,
         "user_message": request.message,
         "serverless_tool_used": "azure_function_get_equipment_info",
@@ -693,7 +787,7 @@ def chat(request: UserRequest):
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": "Highest risk equipment ranking generated successfully.",
+                "summary": "Ranking de equipos con mayor riesgo generado correctamente.",
                 "highest_risk_equipment": highest_risk.get("highest_risk_equipment", [])
             }
         }
@@ -708,7 +802,7 @@ def chat(request: UserRequest):
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": "Lowest OEE equipment ranking generated successfully.",
+                "summary": "Ranking de equipos con menor OEE generado correctamente.",
                 "lowest_oee_equipment": oee_ranking.get("lowest_oee_equipment", []),
                 "oee_ranking": oee_ranking.get("oee_ranking", [])
             }
@@ -721,29 +815,29 @@ def chat(request: UserRequest):
         ).json()
 
         downtime_ranking = downtime.get("downtime_ranking", [])
-        display_lines = ["### Downtime Ranking", ""]
+        display_lines = ["### Ranking De Tiempo Muerto", ""]
         if downtime_ranking:
             top = downtime_ranking[0]
             display_lines.append(
-                f"Highest downtime equipment: **{top.get('equipment_id')} - {top.get('equipment_name')}** "
-                f"with **{top.get('estimated_downtime_hours')} estimated hours**."
+                f"Equipo con mayor tiempo muerto: **{top.get('equipment_id')} - {top.get('equipment_name')}** "
+                f"con **{top.get('estimated_downtime_hours')} horas estimadas**."
             )
             display_lines.append("")
-            display_lines.append("Top downtime equipment:")
+            display_lines.append("Principales equipos por tiempo muerto:")
             for index, item in enumerate(downtime_ranking[:5], start=1):
                 display_lines.append(
-                    f"{index}. **{item.get('equipment_id')}** - {item.get('estimated_downtime_hours')} hours "
-                    f"({item.get('area')}, {item.get('total_work_orders')} work orders)"
+                    f"{index}. **{item.get('equipment_id')}** - {item.get('estimated_downtime_hours')} horas "
+                    f"({item.get('area')}, {item.get('total_work_orders')} órdenes)"
                 )
         else:
-            display_lines.append("No downtime data available.")
+            display_lines.append("No hay datos de tiempo muerto disponibles.")
 
         return {
             "status": "success",
             "question": request.message,
             "display_answer": "\n".join(display_lines),
             "answer": {
-                "summary": "Downtime ranking generated successfully.",
+                "summary": "Ranking de tiempo muerto generado correctamente.",
                 "downtime_ranking": downtime_ranking
             }
         }
@@ -776,7 +870,7 @@ def chat(request: UserRequest):
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": f"{critical_orders.get('count')} open critical work orders found.",
+                "summary": f"Se encontraron {critical_orders.get('count')} órdenes críticas abiertas.",
                 "critical_work_orders": critical_orders.get("critical_work_orders", [])
             }
         }
@@ -806,37 +900,37 @@ def chat(request: UserRequest):
             recommendations.append({
                 "equipment_id": item.get("equipment_id"),
                 "priority": "critical" if item.get("risk_level") == "critical" else "high",
-                "reason": f"Risk level {item.get('risk_level')} with score {item.get('risk_score')}.",
-                "recommended_action": "Inspect equipment condition, review open work orders, and validate spare parts before starting work."
+                "reason": f"Nivel de riesgo {translate_label(item.get('risk_level'))} con score {item.get('risk_score')}.",
+                "recommended_action": "Inspeccionar condición del equipo, revisar órdenes abiertas y validar refacciones antes de iniciar el trabajo."
             })
 
         display_lines = [
-            "### Daily Maintenance Recommendation",
+            "### Recomendación Diaria De Mantenimiento",
             "",
-            "Focus today's maintenance work on the highest-risk equipment first.",
+            "Enfocar primero el trabajo de mantenimiento de hoy en los equipos de mayor riesgo.",
             ""
         ]
         for index, item in enumerate(recommendations, start=1):
-            display_lines.append(f"**Priority {index}: {item.get('equipment_id')}**")
-            display_lines.append(f"- Priority: {item.get('priority')}")
-            display_lines.append(f"- Reason: {item.get('reason')}")
-            display_lines.append(f"- Action: {item.get('recommended_action')}")
+            display_lines.append(f"**Prioridad {index}: {item.get('equipment_id')}**")
+            display_lines.append(f"- Prioridad: {translate_label(item.get('priority'))}")
+            display_lines.append(f"- Razón: {item.get('reason')}")
+            display_lines.append(f"- Acción: {item.get('recommended_action')}")
             display_lines.append("")
 
         if critical_items:
-            display_lines.append("Critical open work orders:")
+            display_lines.append("Órdenes críticas abiertas:")
             for item in critical_items[:3]:
                 display_lines.append(
-                    f"- **{item.get('equipment_id')}**: {item.get('description')} "
-                    f"({item.get('status_work_order')})"
+                    f"- **{item.get('equipment_id')}**: {translate_maintenance_text(item.get('description'))} "
+                    f"({translate_label(item.get('status_work_order'))})"
                 )
             display_lines.append("")
 
         if downtime_items:
-            display_lines.append("Highest downtime equipment:")
+            display_lines.append("Equipo con mayor tiempo muerto:")
             for index, item in enumerate(downtime_items, start=1):
                 display_lines.append(
-                    f"{index}. **{item.get('equipment_id')}** - {item.get('estimated_downtime_hours')} hours"
+                    f"{index}. **{item.get('equipment_id')}** - {item.get('estimated_downtime_hours')} horas"
                 )
 
         return {
@@ -844,7 +938,7 @@ def chat(request: UserRequest):
             "question": request.message,
             "display_answer": "\n".join(display_lines),
             "answer": {
-                "summary": "Daily maintenance recommendations generated from risk ranking, critical work orders, and downtime data.",
+                "summary": "Recomendaciones diarias de mantenimiento generadas desde ranking de riesgo, órdenes críticas y datos de tiempo muerto.",
                 "recommended_focus": recommendations,
                 "critical_open_work_orders": critical_items,
                 "highest_downtime_equipment": downtime_items,
@@ -864,25 +958,25 @@ def chat(request: UserRequest):
         failure_data = failures.get("data", [])
         most_common = failure_data[0] if failure_data else None
 
-        display_lines = ["### Most Common Failure", ""]
+        display_lines = ["### Falla Más Común", ""]
         if most_common:
             display_lines.append(
-                f"The most common failure is **{most_common.get('failure_type')}** "
-                f"with **{most_common.get('count')} occurrences**."
+                f"La falla más común es **{most_common.get('failure_type')}** "
+                f"con **{most_common.get('count')} ocurrencias**."
             )
             display_lines.append("")
-            display_lines.append("Top failure types:")
+            display_lines.append("Principales tipos de falla:")
             for index, item in enumerate(failure_data[:10], start=1):
-                display_lines.append(f"{index}. **{item.get('failure_type')}** - {item.get('count')} occurrences")
+                display_lines.append(f"{index}. **{item.get('failure_type')}** - {item.get('count')} ocurrencias")
         else:
-            display_lines.append("No failure data available.")
+            display_lines.append("No hay datos de fallas disponibles.")
 
         return {
             "status": "success",
             "question": request.message,
             "display_answer": "\n".join(display_lines),
             "answer": {
-                "summary": "Most common failure types generated successfully.",
+                "summary": "Tipos de falla más comunes generados correctamente.",
                 "most_common_failure": most_common,
                 "top_failure_types": failure_data,
                 "data_source": "dashboard/top-failure-types"
@@ -893,7 +987,7 @@ def chat(request: UserRequest):
     if not equipment_id:
         return {
             "status": "error",
-            "message": "Equipment ID not detected. Please specify equipment, for example CNC-01, PRESS-01, ROBOT-01."
+            "message": "No se detectó ID de equipo. Especifica un equipo, por ejemplo CNC-01, PRESS-01 o ROBOT-01."
         }
 
     if is_failure_pattern_question(request.message):
@@ -912,22 +1006,33 @@ def chat(request: UserRequest):
             return {
                 "status": "error",
                 "question": request.message,
-                "message": pattern.get("message", "No failure pattern data available.")
+                "message": pattern.get("message", "No hay datos disponibles para este patrón de falla.")
             }
 
+        recurrence_labels = {
+            "critical": "crítico",
+            "high": "alto",
+            "medium": "medio",
+            "low": "bajo"
+        }
+        recurrence_level = recurrence_labels.get(
+            pattern.get("recurrence_level"),
+            pattern.get("recurrence_level")
+        )
+
         display_lines = [
-            f"### Failure Pattern Analysis for {equipment_id}",
+            f"### Análisis De Patrón De Falla Para {equipment_id}",
             "",
-            f"Failure type: **{pattern.get('failure_type')}**",
-            f"Occurrences in last {pattern.get('analysis_window_years')} years: **{pattern.get('occurrences')}**",
-            f"Recurrence level: **{pattern.get('recurrence_level')}**",
-            f"Average days between failures: **{pattern.get('average_days_between_failures') or 'N/A'}**",
+            f"Tipo de falla: **{pattern.get('failure_type')}**",
+            f"Ocurrencias en los últimos {pattern.get('analysis_window_years')} años: **{pattern.get('occurrences')}**",
+            f"Nivel de recurrencia: **{recurrence_level}**",
+            f"Días promedio entre fallas: **{pattern.get('average_days_between_failures') or 'N/A'}**",
             "",
-            f"Most common corrective action: **{pattern.get('most_common_action')}**",
+            f"Acción correctiva más común: **{pattern.get('most_common_action')}**",
             "",
-            f"Recommendation: {pattern.get('recommendation')}",
+            f"Recomendación: {pattern.get('recommendation')}",
             "",
-            f"Confidence: **{pattern.get('confidence')}**"
+            f"Confianza: **{pattern.get('confidence')}**"
         ]
 
         return {
@@ -935,7 +1040,7 @@ def chat(request: UserRequest):
             "question": request.message,
             "display_answer": "\n".join(display_lines),
             "answer": {
-                "summary": f"Failure pattern analysis generated for {equipment_id}.",
+                "summary": f"Análisis de patrón de falla generado para {equipment_id}.",
                 "failure_pattern_analysis": pattern
             }
         }
@@ -950,7 +1055,7 @@ def chat(request: UserRequest):
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": f"Equipment information retrieved for {equipment_id}.",
+                "summary": f"Información de equipo obtenida para {equipment_id}.",
                 "equipment_id": equipment_id,
                 "equipment": equipment
             }
@@ -1003,32 +1108,32 @@ def chat(request: UserRequest):
             priority = "critical"
 
         actions = [
-            latest_action or "Perform a preventive maintenance inspection",
-            "Review open work orders before starting the intervention",
-            "Validate spare parts availability before scheduling downtime"
+            translate_maintenance_text(latest_action) or "Realizar inspección preventiva de mantenimiento",
+            "Revisar órdenes abiertas antes de iniciar la intervención",
+            "Validar disponibilidad de refacciones antes de programar paro"
         ]
 
         if latest_failure:
-            actions.insert(0, f"Inspect the recurring failure mode: {latest_failure}")
+            actions.insert(0, f"Inspeccionar el modo de falla recurrente: {translate_maintenance_text(latest_failure)}")
         if low_stock_parts > 0:
-            actions.append("Reorder low-stock spare parts before closing the maintenance plan")
+            actions.append("Reordenar refacciones con bajo inventario antes de cerrar el plan de mantenimiento")
 
         display_lines = [
-            f"### Recommended Maintenance for {equipment_id}",
+            f"### Mantenimiento Recomendado Para {equipment_id}",
             "",
-            f"Priority: **{priority}**",
-            f"Risk: **{risk_level}** with score **{risk_score}**",
-            f"Latest failure pattern: **{latest_failure or 'N/A'}**",
+            f"Prioridad: **{translate_label(priority)}**",
+            f"Riesgo: **{translate_label(risk_level)}** con score **{risk_score}**",
+            f"Último patrón de falla: **{translate_maintenance_text(latest_failure) or 'N/A'}**",
             "",
-            "Recommended actions:"
+            "Acciones recomendadas:"
         ]
         for index, action in enumerate(actions, start=1):
             display_lines.append(f"{index}. {action}")
         display_lines.extend([
             "",
-            f"Open work orders: **{open_order_count}**",
-            f"Spare parts available: **{spare_parts.get('available')}**",
-            f"Low-stock parts: **{low_stock_parts}**"
+            f"Órdenes abiertas: **{open_order_count}**",
+            f"Refacciones disponibles: **{'Sí' if spare_parts.get('available') else 'No'}**",
+            f"Refacciones con bajo inventario: **{low_stock_parts}**"
         ])
 
         return {
@@ -1036,7 +1141,7 @@ def chat(request: UserRequest):
             "question": request.message,
             "display_answer": "\n".join(display_lines),
             "answer": {
-                "summary": f"Recommended maintenance generated for {equipment_id}.",
+                "summary": f"Mantenimiento recomendado generado para {equipment_id}.",
                 "equipment_id": equipment_id,
                 "priority": priority,
                 "risk_level": risk_level,
@@ -1062,7 +1167,7 @@ def chat(request: UserRequest):
             "equipment_id": equipment_id,
             "priority": "high",
             "description": request.message,
-            "recommended_action": "Review reported issue and perform maintenance inspection.",
+            "recommended_action": "Revisar el problema reportado y realizar inspección de mantenimiento.",
             "requested_by": request.user_id
         }
 
@@ -1076,7 +1181,7 @@ def chat(request: UserRequest):
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": f"Serverless work order created for {equipment_id}.",
+                "summary": f"Orden de trabajo serverless creada para {equipment_id}.",
                 "serverless_tool": "azure_function_create_work_order",
                 "equipment_id": equipment_id,
                 "work_order": work_order
@@ -1094,7 +1199,7 @@ def chat(request: UserRequest):
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": f"{equipment_id} has {all_orders.get('count')} total work orders.",
+                "summary": f"{equipment_id} tiene {all_orders.get('count')} órdenes de trabajo en total.",
                 "equipment_id": equipment_id,
                 "all_work_orders": all_orders.get("work_orders", [])
             }
@@ -1111,7 +1216,7 @@ def chat(request: UserRequest):
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": f"{equipment_id} OEE is {oee.get('oee')}%.",
+                "summary": f"El OEE de {equipment_id} es {oee.get('oee')}%.",
                 "equipment_id": equipment_id,
                 "planned_minutes": oee.get("planned_minutes"),
                 "downtime_minutes": oee.get("downtime_minutes"),
@@ -1142,7 +1247,7 @@ def chat(request: UserRequest):
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": f"{equipment_id} has {len(orders)} open work orders.",
+                "summary": f"{equipment_id} tiene {len(orders)} órdenes abiertas.",
                 "equipment_id": equipment_id,
                 "risk_level": risk.get("risk_level"),
                 "risk_score": risk.get("risk_score"),
@@ -1170,7 +1275,7 @@ def chat(request: UserRequest):
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": f"{equipment_id} risk level is {risk.get('risk_level')}.",
+                "summary": f"El nivel de riesgo de {equipment_id} es {risk.get('risk_level')}.",
                 "equipment_id": equipment_id,
                 "risk_score": risk.get("risk_score"),
                 "health_score": risk.get("health_score"),
@@ -1205,7 +1310,7 @@ def chat(request: UserRequest):
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": f"Maintenance history retrieved for {equipment_id}.",
+                "summary": f"Historial de mantenimiento obtenido para {equipment_id}.",
                 "equipment_id": equipment_id,
                 "maintenance_history": history
             }
@@ -1213,26 +1318,31 @@ def chat(request: UserRequest):
 
     return {
         "status": "not_supported_yet",
-        "message": "This chat endpoint currently supports equipment information, recommended maintenance, daily maintenance recommendations, common failure analysis, failure pattern analysis, open work orders, all work orders, serverless work order creation, risk score, spare parts, highest risk equipment, lowest OEE equipment, downtime ranking, OEE, weekly summary, maintenance history, and critical work orders questions.",
+        "message": "Este endpoint de chat actualmente soporta información de equipos, mantenimiento recomendado, recomendaciones diarias, análisis de falla común, análisis de patrones de falla, órdenes abiertas, todas las órdenes, creación serverless de órdenes, riesgo, refacciones, equipos con mayor riesgo, equipos con menor OEE, ranking de tiempo muerto, OEE, resumen semanal, historial de mantenimiento y órdenes críticas.",
         "examples": [
-            "What is the status of PRESS-01?",
-            "Show information for ROBOT-01",
-            "Recommended maintenance for PRESS-01",
-            "What maintenance should be done today?",
-            "Which is the most common failure?",
-            "Has oil leakage happened before on PRESS-01?",
-            "Are there open work orders for ROBOT-01?",
-            "Show all work orders for PRESS-01",
-            "Create a work order for PRESS-01 because it is overheating",
-            "What is the risk score for PRESS-01?",
-            "Are spare parts available for CNC-01?",
-            "Which machine has the highest risk?",
-            "What equipment should I prioritize today?",
-            "Which equipment is generating the most downtime?",
-            "What machine has the lowest OEE?",
-            "What is the OEE of PRESS-01?",
-            "Generate a weekly maintenance summary.",
-            "What maintenance history does ROBOT-01 have?",
-            "Show all critical work orders."
+            "¿Cuál es el estado de PRESS-01?",
+            "Muestra información de ROBOT-01",
+            "Mantenimiento recomendado para PRESS-01",
+            "¿Qué mantenimiento se debe hacer hoy?",
+            "¿Cuál es la falla más común?",
+            "¿La fuga de aceite ha ocurrido antes en PRESS-01?",
+            "¿Hay órdenes abiertas para ROBOT-01?",
+            "Muestra todas las órdenes de PRESS-01",
+            "Crear orden de trabajo para PRESS-01 porque se está sobrecalentando",
+            "¿Cuál es el riesgo de PRESS-01?",
+            "¿Hay refacciones disponibles para CNC-01?",
+            "¿Qué máquina tiene el mayor riesgo?",
+            "¿Qué equipo debo priorizar hoy?",
+            "¿Qué equipo genera más tiempo muerto?",
+            "¿Qué máquina tiene el menor OEE?",
+            "¿Cuál es el OEE de PRESS-01?",
+            "Genera un resumen semanal de mantenimiento.",
+            "¿Qué historial de mantenimiento tiene ROBOT-01?",
+            "Muestra todas las órdenes críticas."
         ]
     }
+
+
+
+
+

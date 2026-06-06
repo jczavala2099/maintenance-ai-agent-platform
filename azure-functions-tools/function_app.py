@@ -27,7 +27,7 @@ def get_equipment_info(req: func.HttpRequest) -> func.HttpResponse:
                 {
                     "status": "error",
                     "tool": "get_equipment_info",
-                    "message": "equipment_id is required"
+                    "message": "equipment_id es requerido"
                 },
                 400
             )
@@ -75,7 +75,7 @@ def create_work_order(req: func.HttpRequest) -> func.HttpResponse:
                 {
                     "status": "error",
                     "tool": "create_work_order",
-                    "message": "Missing required fields",
+                    "message": "Faltan campos requeridos",
                     "missing_fields": missing_fields
                 },
                 400
@@ -109,7 +109,7 @@ def send_notification(req: func.HttpRequest) -> func.HttpResponse:
             body = {}
 
         channel = body.get("channel", "maintenance_supervisor")
-        message = body.get("body", "Maintenance notification triggered.")
+        message = body.get("body", "Notificación de mantenimiento activada.")
 
         response = requests.post(
             f"{TOOLS_API_URL}/send_notification",
