@@ -35,11 +35,36 @@ jobs:
         run: |
           pip install -r logging-service/requirements.txt
 
+      - name: Install streamlit-ui dependencies
+        run: |
+          pip install -r streamlit-ui/requirements.txt
+
+      - name: Install Azure Functions dependencies
+        run: |
+          pip install -r azure-functions-tools/requirements.txt
+          pip install -r durable-workflows/requirements.txt
+          pip install pytest
+
       - name: Validate Python syntax
         run: |
           python -m py_compile orchestrator/main.py
           python -m py_compile tools-api/main.py
           python -m py_compile logging-service/main.py
+          python -m py_compile streamlit-ui/app.py
+          python -m py_compile azure-functions-tools/function_app.py
+          python -m py_compile durable-workflows/function_app.py
+
+      - name: Run automated tests when available
+        run: |
+          if find tests -name "test_*.py" -o -name "*_test.py" | grep -q .; then
+            pytest tests
+          else
+            echo "No automated tests found. Syntax validation and Docker builds will be used for CI validation."
+          fi
+
+      - name: Validate Docker Compose configuration
+        run: |
+          docker compose config
 
       - name: Build orchestrator Docker image
         run: |
@@ -52,6 +77,23 @@ jobs:
       - name: Build logging-service Docker image
         run: |
           docker build -t maintenance-logging-service ./logging-service
+
+      - name: Build streamlit-ui Docker image
+        run: |
+          docker build -t maintenance-streamlit-ui ./streamlit-ui
+
+      - name: Build Azure Functions tools Docker image
+        run: |
+          docker build -t maintenance-azure-functions-tools ./azure-functions-tools
+
+      - name: Build Durable Workflows Docker image
+        run: |
+          docker build -t maintenance-durable-workflows ./durable-workflows
+
+      - name: Document deployment boundary
+        run: |
+          echo "Deployment uses Docker Compose for the academic/local environment."
+          echo "Cloud secrets and production deployment should be configured in the target cloud environment."
 
       - name: CI completed
         run: |
