@@ -14,6 +14,49 @@ TOOLS_API_BASE_URL = os.getenv(
     "http://localhost:8001"
 )
 
+
+def translate_maintenance_text(value):
+    if value is None:
+        return "N/A"
+
+    translations = {
+        "High vibration": "Vibración alta",
+        "Wire feed issue": "Problema de alimentación de alambre",
+        "Electrical fault": "Falla eléctrica",
+        "Oil leakage": "Fuga de aceite",
+        "Hydraulic pressure drop": "Caída de presión hidráulica",
+        "Overheating": "Sobrecalentamiento",
+        "Sensor failure": "Falla de sensor",
+        "Airflow restriction": "Restricción de flujo de aire",
+        "Temperature deviation": "Desviación de temperatura",
+        "Belt slipping": "Deslizamiento de banda",
+        "Die alignment issue": "Problema de alineación de troquel",
+        "Tool changer fault": "Falla de cambiador de herramienta",
+        "Conveyor tracking issue": "Problema de alineación de transportador",
+        "Inspect bearings, mounting base and alignment": "Inspeccionar rodamientos, base de montaje y alineación",
+        "Inspect wire feeder, liner and drive rolls": "Inspeccionar alimentador de alambre, guía y rodillos de arrastre",
+        "Perform electrical diagnosis and inspect relays": "Realizar diagnóstico eléctrico e inspeccionar relevadores",
+        "Replace seals and inspect fittings": "Reemplazar sellos e inspeccionar conexiones",
+        "Inspect hydraulic pump, seals and pressure regulator": "Inspeccionar bomba hidráulica, sellos y regulador de presión",
+        "Review equipment condition": "Revisar condición del equipo",
+    }
+
+    translated = str(value)
+    for source, target in translations.items():
+        translated = translated.replace(source, target)
+    return translated
+
+
+def translate_level(value):
+    levels = {
+        "critical": "crítico",
+        "high": "alto",
+        "medium": "medio",
+        "low": "bajo",
+    }
+    return levels.get(value, value if value is not None else "N/A")
+
+
 st.set_page_config(
     page_title="Asistente IA de Mantenimiento",
     page_icon="🛠️",
@@ -86,6 +129,47 @@ if st.button("Preguntar"):
                     answer.get("affected_equipment", "N/A")
                 )
 
+            # All machines / equipment list response
+            elif "equipment_list" in answer:
+                st.subheader("Lista de Equipos")
+
+                equipment_list = answer.get("equipment_list", [])
+
+                if equipment_list:
+                    col1, col2, col3 = st.columns(3)
+
+                    col1.metric(
+                        "Total de Equipos",
+                        len(equipment_list)
+                    )
+
+                    high_criticality = [
+                        item for item in equipment_list
+                        if item.get("criticality") == "high"
+                    ]
+
+                    col2.metric(
+                        "Alta Criticidad",
+                        len(high_criticality)
+                    )
+
+                    total_orders = sum(
+                        item.get("work_order_count", 0)
+                        for item in equipment_list
+                    )
+
+                    col3.metric(
+                        "Órdenes Totales",
+                        total_orders
+                    )
+
+                    st.dataframe(
+                        equipment_list,
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No se encontraron equipos registrados.")
+
             # Single-equipment OEE response
             elif "oee" in answer:
                 st.subheader("Análisis OEE")
@@ -128,6 +212,131 @@ if st.button("Preguntar"):
                     "Minutos Operando",
                     answer.get("runtime_minutes", "N/A")
                 )
+
+            # Equipment information response
+            elif "equipment" in answer and isinstance(answer.get("equipment"), dict):
+                equipment = answer.get("equipment", {})
+
+                st.subheader("Información del Equipo")
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                col1.metric(
+                    "Equipo",
+                    answer.get("equipment_id", equipment.get("equipment_id", "N/A"))
+                )
+
+                col2.metric(
+                    "Nombre",
+                    equipment.get("name", "N/A")
+                )
+
+                col3.metric(
+                    "Área",
+                    equipment.get("area", "N/A")
+                )
+
+                col4.metric(
+                    "Estado",
+                    equipment.get("status_equipment", "N/A")
+                )
+
+                col5, col6 = st.columns(2)
+
+                col5.metric(
+                    "Criticidad",
+                    equipment.get("criticality", "N/A")
+                )
+
+                col6.metric(
+                    "Resultado",
+                    equipment.get("status", "N/A")
+                )
+
+                with st.expander("Detalles Técnicos"):
+                    st.json(equipment)
+
+            # Work order creation response
+            elif "work_order" in answer and isinstance(answer.get("work_order"), dict):
+                work_order = answer.get("work_order", {})
+
+                st.subheader("Orden de Trabajo Creada")
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                col1.metric(
+                    "Orden",
+                    work_order.get("work_order_id", "N/A")
+                )
+
+                col2.metric(
+                    "Equipo",
+                    work_order.get("equipment_id", answer.get("equipment_id", "N/A"))
+                )
+
+                col3.metric(
+                    "Prioridad",
+                    translate_level(work_order.get("priority"))
+                )
+
+                col4.metric(
+                    "Estado",
+                    translate_level(work_order.get("status"))
+                )
+
+                col5, col6 = st.columns(2)
+
+                col5.metric(
+                    "Equipo Asignado",
+                    work_order.get("assigned_team", "N/A")
+                )
+
+                col6.metric(
+                    "Tool Usada",
+                    answer.get("serverless_tool", "N/A")
+                )
+
+                message = work_order.get("message")
+                if message:
+                    st.info(message)
+
+                with st.expander("Detalles Técnicos"):
+                    st.json(answer)
+
+            # Spare parts inventory response
+            elif "inventory" in answer and "available_parts" in answer:
+                st.subheader("Inventario de Refacciones")
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                col1.metric(
+                    "Equipo",
+                    answer.get("equipment_id", "N/A")
+                )
+
+                col2.metric(
+                    "Disponibilidad",
+                    "Sí" if answer.get("available") else "No"
+                )
+
+                col3.metric(
+                    "Refacciones Disponibles",
+                    answer.get("available_parts", "N/A")
+                )
+
+                col4.metric(
+                    "Stock Bajo",
+                    answer.get("low_stock_parts", "N/A")
+                )
+
+                inventory = answer.get("inventory", [])
+                if inventory:
+                    st.dataframe(
+                        inventory,
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No se encontraron refacciones para este equipo.")
 
             # Lowest OEE equipment ranking
             elif "lowest_oee_equipment" in answer:
@@ -383,7 +592,7 @@ if st.button("Preguntar"):
 
                 st.subheader("Órdenes Críticas")
 
-                if critical_orders:
+                if isinstance(critical_orders, list) and critical_orders:
                     st.dataframe(
                         critical_orders,
                         use_container_width=True
@@ -407,6 +616,12 @@ if st.button("Preguntar"):
                         len(equipment_ids)
                     )
 
+                elif isinstance(critical_orders, int):
+                    st.metric(
+                        "Órdenes Críticas",
+                        critical_orders
+                    )
+
                 else:
                     st.info("No se encontraron órdenes críticas.")
 
@@ -421,12 +636,12 @@ if st.button("Preguntar"):
 
                     col1.metric(
                         "Última Falla",
-                        history.get("last_failure", "N/A")
+                        translate_maintenance_text(history.get("last_failure"))
                     )
 
                     col2.metric(
                         "Última Acción",
-                        history.get("last_action", "N/A")
+                        translate_maintenance_text(history.get("last_action"))
                     )
 
                     col3.metric(
@@ -434,7 +649,44 @@ if st.button("Preguntar"):
                         history.get("days_since_last_event", "N/A")
                     )
 
-                    st.json(history)
+                    col4, col5 = st.columns(2)
+
+                    col4.metric(
+                        "Riesgo de Recurrencia",
+                        translate_level(history.get("recurrence_risk"))
+                    )
+
+                    col5.metric(
+                        "Eventos Históricos",
+                        history.get("count", "N/A")
+                    )
+
+                    history_rows = [
+                        {
+                            "Falla": translate_maintenance_text(item.get("last_failure")),
+                            "Acción": translate_maintenance_text(item.get("last_action")),
+                            "Días Desde Evento": item.get("days_since_last_event"),
+                            "Riesgo De Recurrencia": translate_level(item.get("recurrence_risk")),
+                        }
+                        for item in history.get("history", [])
+                    ]
+
+                    if history_rows:
+                        st.subheader("Eventos Históricos")
+                        st.dataframe(
+                            history_rows,
+                            use_container_width=True
+                        )
+
+                    with st.expander("Detalles Técnicos"):
+                        st.json({
+                            "equipment_id": history.get("equipment_id"),
+                            "count": history.get("count"),
+                            "coverage_years": history.get("coverage_years"),
+                            "last_failure": translate_maintenance_text(history.get("last_failure")),
+                            "last_action": translate_maintenance_text(history.get("last_action")),
+                            "recurrence_risk": translate_level(history.get("recurrence_risk")),
+                        })
                 else:
                     st.dataframe(
                         history,

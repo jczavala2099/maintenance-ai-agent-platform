@@ -3,6 +3,7 @@ from pydantic import BaseModel
 import requests
 import os
 import re
+import unicodedata
 
 app = FastAPI(title="Orquestador del Agente de Mantenimiento")
 
@@ -101,6 +102,10 @@ def translate_maintenance_text(value: str | None):
         "Inspect press and validate oil leakage history": "Inspeccionar prensa y validar historial de fuga de aceite",
         "Inspect bearings, mounting base and alignment": "Inspeccionar rodamientos, base de montaje y alineación",
         "Inspect hydraulic pump, seals and pressure regulator": "Inspeccionar bomba hidráulica, sellos y regulador de presión",
+        "Create a work order for": "Crear una orden de trabajo para",
+        "because it is overheating": "porque se está sobrecalentando",
+        "because it is sobrecalentamiento": "porque se está sobrecalentando",
+        "Review reported issue and perform maintenance inspection": "Revisar el problema reportado y realizar inspección de mantenimiento",
         "detected on": "detectada en",
     }
 
@@ -111,12 +116,125 @@ def translate_maintenance_text(value: str | None):
     return translated
 
 
+def normalize_text(value: str | None):
+    if not value:
+        return ""
+
+    value = unicodedata.normalize("NFKD", value)
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    value = value.lower()
+    value = re.sub(r"\b(CNC|PRESS|CONV|ROBOT|COMP|PUMP|FAN|OVEN|PACK)-\d{2}\b", " ", value, flags=re.IGNORECASE)
+    value = re.sub(r"[^a-z0-9\s]", " ", value)
+
+    replacements = {
+        "se esta sobrecalentando": "overheating",
+        "sobrecalentando": "overheating",
+        "sobrecalentamiento": "overheating",
+        "calentando": "overheating",
+        "fuga de aceite": "oil leakage",
+        "tirando aceite": "oil leakage",
+        "perdida de aceite": "oil leakage",
+        "vibracion alta": "high vibration",
+        "vibrando mucho": "high vibration",
+        "baja presion hidraulica": "hydraulic pressure drop",
+        "caida de presion hidraulica": "hydraulic pressure drop",
+        "falla de sensor": "sensor failure",
+    }
+    for source, target in replacements.items():
+        value = value.replace(source, target)
+
+    stop_words = {
+        "create", "crear", "generate", "generar", "open", "abrir",
+        "work", "order", "orden", "trabajo", "ticket", "para",
+        "for", "porque", "because", "due", "to", "por", "la", "el",
+        "los", "las", "un", "una", "de", "del", "se", "esta", "está",
+        "is", "it", "the", "a", "an"
+    }
+    tokens = [
+        token for token in value.split()
+        if token and token not in stop_words and len(token) > 1
+    ]
+    return " ".join(tokens)
+
+
+def extract_reported_issue(message: str):
+    text = message.strip()
+    patterns = [
+        r"\bporque\b(.+)$",
+        r"\bbecause\b(.+)$",
+        r"\bdue to\b(.+)$",
+        r"\bpor\b(.+)$",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            issue = match.group(1).strip()
+            if issue:
+                return issue
+
+    equipment_id = detect_equipment_id(text)
+    if equipment_id:
+        text = re.sub(re.escape(equipment_id), "", text, flags=re.IGNORECASE)
+
+    return text
+
+
+def find_duplicate_open_work_order(open_orders: list[dict], reported_issue: str):
+    normalized_issue = normalize_text(reported_issue)
+    issue_tokens = set(normalized_issue.split())
+
+    if not issue_tokens:
+        return None
+
+    for order in open_orders:
+        normalized_description = normalize_text(order.get("description"))
+        description_tokens = set(normalized_description.split())
+
+        if not description_tokens:
+            continue
+
+        if normalized_issue in normalized_description or normalized_description in normalized_issue:
+            return order
+
+        overlap = issue_tokens.intersection(description_tokens)
+        similarity = len(overlap) / max(len(issue_tokens), len(description_tokens))
+        if similarity >= 0.6:
+            return order
+
+    return None
+
+
 def is_open_work_orders_question(message: str):
     text = message.lower()
     keywords = [
         "open work orders", "open orders", "pending work orders",
         "active work orders", "ordenes abiertas", "órdenes abiertas",
         "ordenes pendientes", "órdenes pendientes"
+    ]
+    return any(keyword in text for keyword in keywords)
+
+
+def is_all_machines_question(message: str):
+    text = message.lower()
+    keywords = [
+        "show all machines",
+        "list all machines",
+        "all machines",
+        "show all equipment",
+        "list all equipment",
+        "all equipment",
+        "machines list",
+        "equipment list",
+        "mostrar todas las maquinas",
+        "mostrar todas las máquinas",
+        "muestra todas las maquinas",
+        "muestra todas las máquinas",
+        "listar todos los equipos",
+        "lista de equipos",
+        "todos los equipos",
+        "todas las maquinas",
+        "todas las máquinas",
     ]
     return any(keyword in text for keyword in keywords)
 
@@ -777,6 +895,22 @@ Predicción de riesgo de mantenimiento:
 
 @app.post("/chat")
 def chat(request: UserRequest):
+    if is_all_machines_question(request.message):
+        equipment_response = requests.get(
+            f"{TOOLS_API_URL}/dashboard/work-orders-by-equipment",
+            timeout=5
+        ).json()
+
+        equipment_list = equipment_response.get("data", [])
+        return {
+            "status": "success",
+            "question": request.message,
+            "answer": {
+                "summary": f"Se encontraron {len(equipment_list)} equipos registrados.",
+                "equipment_list": equipment_list
+            }
+        }
+
     if is_highest_risk_question(request.message):
         highest_risk = requests.get(
             f"{TOOLS_API_URL}/get_highest_risk_equipment",
@@ -865,13 +999,29 @@ def chat(request: UserRequest):
             f"{TOOLS_API_URL}/get_critical_work_orders",
             timeout=5
         ).json()
+        critical_items = critical_orders.get("critical_work_orders", [])
+        detected_equipment_id = detect_equipment_id(request.message)
+
+        if detected_equipment_id:
+            critical_items = [
+                item for item in critical_items
+                if item.get("equipment_id") == detected_equipment_id
+            ]
+            summary = (
+                f"Se encontraron {len(critical_items)} órdenes críticas abiertas "
+                f"para {detected_equipment_id}."
+            )
+        else:
+            summary = f"Se encontraron {len(critical_items)} órdenes críticas abiertas."
 
         return {
             "status": "success",
             "question": request.message,
             "answer": {
-                "summary": f"Se encontraron {critical_orders.get('count')} órdenes críticas abiertas.",
-                "critical_work_orders": critical_orders.get("critical_work_orders", [])
+                "summary": summary,
+                "equipment_id": detected_equipment_id,
+                "count": len(critical_items),
+                "critical_work_orders": critical_items
             }
         }
 
@@ -1162,6 +1312,44 @@ def chat(request: UserRequest):
             }
         }
     if is_create_work_order_question(request.message):
+        reported_issue = extract_reported_issue(request.message)
+        open_orders_response = requests.post(
+            f"{TOOLS_API_URL}/get_open_work_orders",
+            json={"equipment_id": equipment_id},
+            timeout=5
+        ).json()
+        open_orders = open_orders_response.get("open_work_orders", [])
+        duplicate_order = find_duplicate_open_work_order(open_orders, reported_issue)
+
+        if duplicate_order:
+            display_lines = [
+                f"### Orden Ya Abierta Para {equipment_id}",
+                "",
+                f"La orden **{duplicate_order.get('work_order_id')}** ya está abierta para esta situación.",
+                f"Estado: **{translate_label(duplicate_order.get('status_work_order'))}**",
+                f"Prioridad: **{translate_label(duplicate_order.get('priority'))}**",
+                f"Reporte existente: {translate_maintenance_text(duplicate_order.get('description'))}",
+                "",
+                "No se creó una orden duplicada."
+            ]
+
+            return {
+                "status": "success",
+                "question": request.message,
+                "display_answer": "\n".join(display_lines),
+                "answer": {
+                    "summary": (
+                        f"La orden {duplicate_order.get('work_order_id')} ya está abierta "
+                        f"para esta situación en {equipment_id}."
+                    ),
+                    "duplicate_detected": True,
+                    "equipment_id": equipment_id,
+                    "reported_issue": reported_issue,
+                    "existing_work_order": duplicate_order,
+                    "work_order_created": False
+                }
+            }
+
         payload = {
             "request_id": "CHAT-AZFUNC-0001",
             "equipment_id": equipment_id,
@@ -1180,10 +1368,18 @@ def chat(request: UserRequest):
         return {
             "status": "success",
             "question": request.message,
+            "display_answer": (
+                f"### Orden De Trabajo Creada Para {equipment_id}\n\n"
+                f"Se creó la orden **{work_order.get('work_order_id')}** para el reporte: "
+                f"{translate_maintenance_text(reported_issue)}."
+            ),
             "answer": {
                 "summary": f"Orden de trabajo serverless creada para {equipment_id}.",
                 "serverless_tool": "azure_function_create_work_order",
                 "equipment_id": equipment_id,
+                "reported_issue": reported_issue,
+                "duplicate_detected": False,
+                "work_order_created": True,
                 "work_order": work_order
             }
         }
